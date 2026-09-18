@@ -107,6 +107,27 @@ mod test_transport_parity {
     }
 
     #[tokio::test]
+    async fn shared_widget_html_subscription_has_one_owner() {
+        let widget = WidgetConfig {
+            id: "w1".to_string(),
+            widget_type: WidgetType::TextUpdate,
+            label: "Widget 1".to_string(),
+            ..Default::default()
+        };
+        let state = make_app_state_with_widget(widget);
+
+        let (mut first_rx, first_is_owner) = state.channel_ctx.subscribe_widget_html("w1");
+        let (second_rx, second_is_owner) = state.channel_ctx.subscribe_widget_html("w1");
+        assert!(first_is_owner);
+        assert!(!second_is_owner);
+
+        state.channel_ctx.publish_widget_html("w1", "updated".to_string());
+        first_rx.changed().await.unwrap();
+        assert_eq!(first_rx.borrow().as_str(), "updated");
+        assert_eq!(second_rx.borrow().as_str(), "updated");
+    }
+
+    #[tokio::test]
     async fn test_widget_write_rejected_when_widget_disabled() {
         let widget = WidgetConfig {
             id: "w1".to_string(),

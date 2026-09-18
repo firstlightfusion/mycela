@@ -23,6 +23,7 @@ use axum::{
 #[cfg(any(feature = "epics-pvxs", feature = "ascii-tcp"))]
 use std::sync::Mutex;
 use std::sync::Arc;
+use tokio::task::JoinHandle;
 
 #[cfg(feature = "epics-pvxs")]
 use crate::server_setup::setup_server_pvs;
@@ -156,6 +157,7 @@ impl AppState {
             .route("/stream/screen/{screen_id}", get(stream_screen_widgets))
             .route("/stream/all", get(stream_all_widgets))
             .route("/stream/widget/{widget_id}", get(stream_widget))
+            .route("/api/metrics", get(runtime_metrics))
             .route("/api/widget/{widget_id}/set", post(write_widget))
     }
 
@@ -213,6 +215,76 @@ impl AppState {
 pub type SseStream = std::pin::Pin<
     Box<dyn tokio_stream::Stream<Item = Result<Event, std::convert::Infallible>> + Send>,
 >;
+
+struct WidgetPollerGuard(Arc<crate::metrics::RuntimeMetrics>);
+
+impl Drop for WidgetPollerGuard {
+    fn drop(&mut self) {
+        self.0.decrement_widget_pollers();
+    }
+}
+
+struct SseClientGuard {
+    label: String,
+    handles: Vec<JoinHandle<()>>,
+    metrics: Arc<crate::metrics::RuntimeMetrics>,
+}
+
+impl Drop for SseClientGuard {
+    fn drop(&mut self) {
+        for handle in &self.handles {
+            handle.abort();
+        }
+        self.metrics.decrement_sse_clients();
+        tracing::warn!("{} SSE stream DROPPED", self.label);
+    }
+}
+
+fn ensure_shared_widget_monitor(
+    state: &AppState,
+    config: crate::config::WidgetConfig,
+) -> tokio::sync::watch::Receiver<String> {
+    let widget_id = config.id.clone();
+    let (rx, should_start) = state.channel_ctx.subscribe_widget_html(&widget_id);
+    if should_start {
+        let ctx = state.channel_ctx.clone();
+        ctx.metrics.increment_widget_pollers();
+        tokio::spawn(async move {
+            let _guard = WidgetPollerGuard(ctx.metrics.clone());
+            let (html_tx, mut html_rx) = tokio::sync::mpsc::unbounded_channel();
+            let monitor = widgets::run_widget_monitor_html_async(config, ctx.clone(), html_tx);
+            tokio::pin!(monitor);
+
+            loop {
+                tokio::select! {
+                    _ = &mut monitor => break,
+                    maybe_html = html_rx.recv() => {
+                        let Some(html) = maybe_html else { break; };
+                        ctx.publish_widget_html(&widget_id, html);
+                    }
+                }
+            }
+        });
+    }
+    rx
+}
+
+pub fn start_shared_widget_monitors(state: &AppState) {
+    for widget in state
+        .config
+        .screens
+        .iter()
+        .flat_map(|screen| widgets::collect_data_widgets(&screen.widgets))
+    {
+        ensure_shared_widget_monitor(state, widget);
+    }
+}
+
+pub async fn runtime_metrics(
+    State(state): State<AppState>,
+) -> axum::Json<crate::metrics::RuntimeMetricsSnapshot> {
+    axum::Json(state.channel_ctx.metrics.snapshot())
+}
 
 // --- Widget write ------------------------------------------------------------
 
@@ -551,30 +623,25 @@ pub async fn stream_widget(
         return Sse::new(stream).keep_alive(KeepAlive::default());
     };
 
-    let ctx = state.channel_ctx.clone();
-    let stream: SseStream = match config.widget_type {
-        WidgetType::TextEntry => {
-            Box::pin(widgets::text_entry::TextEntry::new(config).into_sse_stream(ctx))
+    let mut html_rx = ensure_shared_widget_monitor(&state, config);
+    state.channel_ctx.metrics.increment_sse_clients();
+    let metrics = state.channel_ctx.metrics.clone();
+    let stream: SseStream = Box::pin(async_stream::stream! {
+        let _guard = SseClientGuard {
+            label: format!("Widget '{}'", widget_id),
+            handles: Vec::new(),
+            metrics,
+        };
+        loop {
+            let html = html_rx.borrow_and_update().clone();
+            if !html.is_empty() {
+                yield Ok(Event::default().data(html));
+            }
+            if html_rx.changed().await.is_err() {
+                break;
+            }
         }
-        WidgetType::TextUpdate => {
-            Box::pin(widgets::text_update::TextUpdate::new(config).into_sse_stream(ctx))
-        }
-        WidgetType::Gauge => Box::pin(widgets::gauge::Gauge::new(config).into_sse_stream(ctx)),
-        WidgetType::Led => Box::pin(widgets::led::Led::new(config).into_sse_stream(ctx)),
-        WidgetType::Slider => Box::pin(widgets::slider::Slider::new(config).into_sse_stream(ctx)),
-        WidgetType::Button => Box::pin(widgets::button::Button::new(config).into_sse_stream(ctx)),
-        WidgetType::ToggleButton => Box::pin(widgets::toggle_button::ToggleButton::new(config).into_sse_stream(ctx)),
-        WidgetType::Chart => Box::pin(widgets::chart::Chart::new(config).into_sse_stream(ctx)),
-        WidgetType::Select => Box::pin(widgets::select::Select::new(config).into_sse_stream(ctx)),
-        WidgetType::MultiStateLed => Box::pin(widgets::multi_state_led::MultiStateLed::new(config).into_sse_stream(ctx)),
-        WidgetType::Group => {
-            let stream: SseStream = Box::pin(async_stream::stream! {
-                yield Ok(Event::default().data("<!-- group widget has no stream -->"));
-            });
-            return Sse::new(stream).keep_alive(KeepAlive::default());
-        }
-        WidgetType::Hidden => Box::pin(widgets::hidden::Hidden::new(config).into_sse_stream(ctx)),
-    };
+    });
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
@@ -587,24 +654,34 @@ pub async fn stream_all_widgets(State(state): State<AppState>) -> impl IntoRespo
         .iter()
         .flat_map(|s| widgets::collect_data_widgets(&s.widgets))
         .collect();
+    let mut handles = Vec::with_capacity(data_widgets.len());
     for config in data_widgets {
         let tx = tx.clone();
         let widget_id = config.id.clone();
-        let ctx = state.channel_ctx.clone();
-        tokio::spawn(widgets::run_widget_monitor_async(
-            config, widget_id, ctx, tx,
-        ));
+        let mut html_rx = ensure_shared_widget_monitor(&state, config);
+        handles.push(tokio::spawn(async move {
+            loop {
+                let html = html_rx.borrow_and_update().clone();
+                if !html.is_empty() && tx.send((widget_id.clone(), html)).await.is_err() {
+                    break;
+                }
+                if html_rx.changed().await.is_err() {
+                    break;
+                }
+            }
+        }));
     }
     drop(tx);
 
+    state.channel_ctx.metrics.increment_sse_clients();
+    let metrics = state.channel_ctx.metrics.clone();
+
     let stream: SseStream = Box::pin(async_stream::stream! {
-        struct SseDropGuard;
-        impl Drop for SseDropGuard {
-            fn drop(&mut self) {
-                tracing::warn!("SSE stream DROPPED — browser disconnected or connection lost");
-            }
-        }
-        let _guard = SseDropGuard;
+        let _guard = SseClientGuard {
+            label: "All-widgets".to_string(),
+            handles,
+            metrics,
+        };
         while let Some((widget_id, html)) = rx.recv().await {
             yield Ok(Event::default().event(widget_id).data(html));
         }
@@ -636,27 +713,34 @@ pub async fn stream_screen_widgets(
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, String)>(64);
     let data_widgets = widgets::collect_data_widgets(&screen.widgets);
+    let mut handles = Vec::with_capacity(data_widgets.len());
     for widget_config in data_widgets {
         let tx = tx.clone();
         let widget_id = widget_config.id.clone();
-        let ctx = state.channel_ctx.clone();
-        tokio::spawn(widgets::run_widget_monitor_async(
-            widget_config,
-            widget_id,
-            ctx,
-            tx,
-        ));
+        let mut html_rx = ensure_shared_widget_monitor(&state, widget_config);
+        handles.push(tokio::spawn(async move {
+            loop {
+                let html = html_rx.borrow_and_update().clone();
+                if !html.is_empty() && tx.send((widget_id.clone(), html)).await.is_err() {
+                    break;
+                }
+                if html_rx.changed().await.is_err() {
+                    break;
+                }
+            }
+        }));
     }
     drop(tx);
 
+    state.channel_ctx.metrics.increment_sse_clients();
+    let metrics = state.channel_ctx.metrics.clone();
+
     let stream: SseStream = Box::pin(async_stream::stream! {
-        struct SseDropGuard(String);
-        impl Drop for SseDropGuard {
-            fn drop(&mut self) {
-                tracing::warn!("Screen '{}' SSE stream DROPPED", self.0);
-            }
-        }
-        let _guard = SseDropGuard(screen_id);
+        let _guard = SseClientGuard {
+            label: format!("Screen '{}'", screen_id),
+            handles,
+            metrics,
+        };
         while let Some((widget_id, html)) = rx.recv().await {
             yield Ok(Event::default().event(widget_id).data(html));
         }

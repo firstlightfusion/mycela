@@ -232,6 +232,7 @@ pub fn start_bridge_runtime(state: &AppState) -> Result<Vec<JoinHandle<()>>, Pro
     let (write_tx, mut write_rx) = tokio_mpsc::unbounded_channel::<WriteThroughRequest>();
     let write_ctx = state.channel_ctx.clone();
     let write_upstream = bridge.upstream.clone();
+    let app_config = state.config.clone();
     let local_proxy_targets = Arc::new(local_proxy_targets);
     let local_proxy_targets_for_worker = local_proxy_targets.clone();
 
@@ -294,9 +295,70 @@ pub fn start_bridge_runtime(state: &AppState) -> Result<Vec<JoinHandle<()>>, Pro
                 .or(req.mapping.source_upstream_register)
                 .unwrap_or(req.mapping.exposed_register);
 
+            let width = req.mapping.word_count.max(1);
+            
+            // For multi-word registers, collect all words from the register bank
+            let mut words = Vec::with_capacity(width as usize);
+            for offset in 0..width {
+                let addr = req.mapping.exposed_register.saturating_add(offset as u16);
+                if addr == req.register {
+                    words.push(req.value);
+                } else {
+                    words.push(
+                        write_ctx
+                            .modbus_bridge
+                            .register_bank
+                            .get(&addr)
+                            .map(|v| *v)
+                            .unwrap_or(0),
+                    );
+                }
+            }
+
+            // Attempt to look up the widget to get its scale factor for inverse conversion on writes
+            let scale_factor: Option<f32> = if let Some(widget_id) = req.mapping.source_widget_id.as_deref() {
+                let mut scale = None;
+                for screen in app_config.screens.iter() {
+                    for widget in crate::widgets::collect_data_widgets(&screen.widgets) {
+                        if widget.id == widget_id {
+                            if let Some(server) = widget.server.as_ref() {
+                                if let Some(proto) = server.protocol.as_ref() {
+                                    #[allow(irrefutable_let_patterns)]
+                                    if let WidgetServerProtocolConfig::ModbusTcp(mb) = proto {
+                                        scale = mb.scale;
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                    }
+                    if scale.is_some() {
+                        break;
+                    }
+                }
+                scale
+            } else {
+                None
+            };
+
             let mut value = req.value;
             if req.mapping.register_type == ModbusRegisterType::Coil {
                 value = if value == 0 { 0 } else { 1 };
+            } else if width == 2 && scale_factor.is_some() {
+                // For 2-word floats with a scale factor, apply inverse scale: bridge_value / scale = upstream_psi_value
+                let bridge_f32 = f32::from_bits(((words[0] as u32) << 16) | (words[1] as u32));
+                let scale = scale_factor.unwrap();
+                let upstream_value = bridge_f32 / scale;
+                let bits = upstream_value.to_bits();
+                words = vec![(bits >> 16) as u16, (bits & 0xFFFF) as u16];
+                value = words[0];
+                tracing::debug!(
+                    "[bridge] applying inverse scale {} to write for widget {}: bridge_value={} -> upstream_value={}",
+                    scale,
+                    req.mapping.source_widget_id.as_deref().unwrap_or("unknown"),
+                    bridge_f32,
+                    upstream_value
+                );
             }
 
             let handle = write_ctx
@@ -307,7 +369,7 @@ pub fn start_bridge_runtime(state: &AppState) -> Result<Vec<JoinHandle<()>>, Pro
                 .write(
                     target_register,
                     req.mapping.register_type.clone(),
-                    vec![value],
+                    words.clone(),
                 )
                 .await;
             match result {

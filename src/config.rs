@@ -223,6 +223,8 @@ pub struct WidgetServerModbusTcpConfig {
     pub register_type: ModbusRegisterType,
     #[serde(default = "default_word_count")]
     pub word_count: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scale: Option<f32>,
 }
 
 #[cfg(all(feature = "modbus", feature = "epics-pvxs"))]
@@ -602,6 +604,15 @@ pub struct AsciiTcpConfig {
     /// Minimum poll interval in milliseconds.
     #[serde(default = "default_min_poll_interval_ms")]
     pub min_poll_interval_ms: u64,
+    /// Timeout in milliseconds for establishing the TCP connection.
+    #[serde(default = "default_connect_timeout_ms")]
+    pub connect_timeout_ms: u64,
+    /// Timeout in milliseconds for a single request/response exchange.
+    ///
+    /// Raise this when the endpoint is slow to answer, or when the client runs
+    /// on a virtual machine where scheduling delays inflate round-trip times.
+    #[serde(default = "default_io_timeout_ms")]
+    pub io_timeout_ms: u64,
     /// Scale factor applied to parsed numeric values.
     #[serde(default = "default_scale")]
     pub scale: f64,
@@ -674,6 +685,23 @@ pub enum AsciiResponseMode {
     Number,
     Bool,
     Text,
+    /// Treats receipt of any accepted response line as a pulse: the value is
+    /// always `1` when a line arrives — content beyond matching `read_response`
+    /// doesn't matter.
+    ///
+    /// Intended for heartbeat/keep-alive lines pushed unsolicited by the device
+    /// (e.g. `ALIVE`). Set `read_response` to the exact literal to watch for
+    /// (e.g. `"ALIVE"`) so other unsolicited lines (errors, other widgets'
+    /// replies) are silently discarded instead of producing a pulse. Pair with
+    /// an empty/no-op `read_command` so the device isn't asked to reply; the
+    /// poll just waits for the next broadcast, and a stalled heartbeat surfaces
+    /// as the normal `Disconnected` state once `io_timeout_ms` elapses without
+    /// a match.
+    ///
+    /// This mode only reports presence — deriving stateful behavior such as a
+    /// blinking LED from repeated pulses is left to application logic (e.g. via
+    /// `ChannelContext::subscribe_widget_value_updates`).
+    Presence,
 }
 
 #[cfg(feature = "ascii-serial")]
@@ -729,6 +757,14 @@ fn default_offset() -> f64 {
 #[cfg(feature = "ascii-tcp")]
 fn default_write_expects_response() -> bool {
     true
+}
+#[cfg(feature = "ascii-tcp")]
+fn default_connect_timeout_ms() -> u64 {
+    2_000
+}
+#[cfg(feature = "ascii-tcp")]
+fn default_io_timeout_ms() -> u64 {
+    2_000
 }
 #[cfg(feature = "modbus")]
 fn default_word_count() -> u8 {
@@ -831,6 +867,9 @@ pub struct WidgetConfig {
     /// Set `true` when the register is a "closed" flag (1 = closed, 0 = open).
     #[serde(default)]
     pub invert: Option<bool>,
+    /// Show the "ON"/"OFF" text under an `Led` widget's indicator. Defaults to `true`.
+    #[serde(default)]
+    pub show_status_text: Option<bool>,
     /// Position of the label and status text relative to the polygon SVG.
     /// Accepted values: `"top"`, `"bottom"`, `"left"` (default), `"right"`.
     #[serde(default)]

@@ -9,6 +9,7 @@ pub mod desktop;
 pub mod ipc;
 pub mod ipc_dispatch;
 pub mod logging;
+pub mod metrics;
 // Declare all protocol backends here so `channel_stream` can route to them.
 // All protocols other than "local" should be behind feature flags so they can be optional dependencies.
 pub mod local_channel;
@@ -34,7 +35,13 @@ pub mod widgets;
 // Re-export framework crates so downstream apps only need `mycela` as a
 // dependency and can import everything via `mycela::<crate>::...`.
 pub use axum;
+pub use image;
 pub use maud;
+pub use maud::{Markup, PreEscaped, Render};
+pub use serde;
+pub use serde_json;
+pub use tokio;
+pub use tracing;
 pub use tower_http;
 pub use tokio_stream;
 pub use async_stream;

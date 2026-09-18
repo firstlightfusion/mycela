@@ -12,6 +12,16 @@ fn to_line_ending(ending: AsciiLineEnding) -> ascii_tcp::LineEnding {
     }
 }
 
+fn to_request_config(a: &AsciiTcpConfig) -> ascii_tcp::AsciiTcpConfig {
+    ascii_tcp::AsciiTcpConfig {
+        host: a.host.clone(),
+        port: a.port,
+        connect_timeout: Duration::from_millis(a.connect_timeout_ms),
+        io_timeout: Duration::from_millis(a.io_timeout_ms),
+        line_ending: to_line_ending(a.line_ending),
+    }
+}
+
 fn parse_numeric_response(s: &str) -> Result<f64, String> {
     for token in s
         .split(|c: char| c.is_whitespace() || c == ',' || c == ';' || c == '=')
@@ -104,6 +114,8 @@ fn parse_response(cfg: &AsciiTcpConfig, response: &str) -> Result<f64, String> {
         AsciiResponseMode::Number => parse_numeric_response(response),
         AsciiResponseMode::Bool => parse_bool_response(response),
         AsciiResponseMode::Text => Ok(0.0),
+        // Content is irrelevant; matching `read_response` already confirmed this is the pulse we want.
+        AsciiResponseMode::Presence => Ok(1.0),
     }
 }
 
@@ -113,11 +125,11 @@ fn extract_field(
     response: String,
 ) -> Result<String, String> {
     match template {
-        Some(template) => template
+        Some(template) if template.spec_count() > 0 => template
             .capture_first(&response)
             .map(|capture| capture.text)
             .map_err(|e| e.to_string()),
-        None => Ok(response),
+        _ => Ok(response),
     }
 }
 
@@ -172,19 +184,14 @@ async fn run_poll(
         None => None,
     };
 
+    let request_cfg = to_request_config(&a);
+
     loop {
         interval.tick().await;
 
-        let request_cfg = ascii_tcp::AsciiTcpConfig {
-            host: a.host.clone(),
-            port: a.port,
-            connect_timeout: Duration::from_secs(2),
-            io_timeout: Duration::from_secs(2),
-            line_ending: to_line_ending(a.line_ending),
-        };
-
         // Without a template every line looks like a valid reply, so unsolicited frames cannot be told apart.
-        let accepts_response = |line: &str| match response_template.as_ref() {
+        let matcher_template = response_template.clone();
+        let accepts_response = move |line: &str| match matcher_template.as_ref() {
             Some(template) => template.captures(line).is_ok(),
             None => true,
         };
@@ -230,7 +237,11 @@ async fn run_poll(
                     build_channel_value(physical, &field, &config)
                 };
 
-                if last_value_str.as_deref() != Some(&cv.value_str) {
+                // Presence pulses are events in their own right (e.g. a heartbeat), not a
+                // value the UI displays, so every accepted pulse must propagate even though
+                // it never differs from the last one.
+                let is_repeat_pulse = matches!(a.response_mode, AsciiResponseMode::Presence);
+                if is_repeat_pulse || last_value_str.as_deref() != Some(&cv.value_str) {
                     last_value_str = Some(cv.value_str.clone());
                     if tx.send(ChannelEvent::Value(cv)).is_err() {
                         break;
@@ -271,13 +282,7 @@ pub async fn write(
         None => outbound_value,
     };
 
-    let request_cfg = ascii_tcp::AsciiTcpConfig {
-        host: a.host.clone(),
-        port: a.port,
-        connect_timeout: Duration::from_secs(2),
-        io_timeout: Duration::from_secs(2),
-        line_ending: to_line_ending(a.line_ending),
-    };
+    let request_cfg = to_request_config(a);
 
     if a.write_expects_response {
         pool.exchange_line(&request_cfg, &command)

@@ -2,6 +2,7 @@ use std::sync::Arc;
 use tokio::sync::watch;
 use dashmap::DashMap;
 use crate::channel::value::ChannelValue;
+use crate::metrics::RuntimeMetrics;
 
 /// Holds all protocol-level handles needed to create channel streams.
 /// Passed through `AppState` and into every SSE handler.
@@ -24,6 +25,9 @@ pub struct ChannelContext {
     pub widget_value_bus: DashMap<String, watch::Sender<ChannelValue>>,
     /// Per-widget connection state bus. `false` = connected (default when unknown).
     pub widget_connected: DashMap<String, watch::Sender<bool>>,
+    /// Process-wide rendered widget cache used to fan out one monitor to many clients.
+    pub widget_html_bus: DashMap<String, watch::Sender<String>>,
+    pub metrics: Arc<RuntimeMetrics>,
 }
 
 impl ChannelContext {
@@ -121,11 +125,32 @@ impl ChannelContext {
             .subscribe()
     }
 
+    /// Returns a receiver and whether this caller must start the shared monitor.
+    pub fn subscribe_widget_html(&self, widget_id: &str) -> (watch::Receiver<String>, bool) {
+        use dashmap::mapref::entry::Entry;
+
+        match self.widget_html_bus.entry(widget_id.to_string()) {
+            Entry::Occupied(entry) => (entry.get().subscribe(), false),
+            Entry::Vacant(entry) => {
+                let (tx, rx) = watch::channel(String::new());
+                entry.insert(tx);
+                (rx, true)
+            }
+        }
+    }
+
+    pub fn publish_widget_html(&self, widget_id: &str, html: String) {
+        if let Some(tx) = self.widget_html_bus.get(widget_id) {
+            tx.send_replace(html);
+        }
+    }
+
     #[cfg(all(feature = "epics-pvxs", feature = "modbus"))]
     pub fn new(
         epics_ctx: Arc<std::sync::Mutex<pvxs::Context>>,
         modbus_pool: Arc<crate::modbus_client::ModbusPool>,
     ) -> Arc<Self> {
+        let metrics = modbus_pool.metrics();
         Arc::new(Self {
             local_store: crate::local_channel::LocalStore::new(),
             epics_ctx,
@@ -137,6 +162,8 @@ impl ChannelContext {
             widget_enabled: DashMap::new(),
             widget_value_bus: DashMap::new(),
             widget_connected: DashMap::new(),
+            widget_html_bus: DashMap::new(),
+            metrics,
         })
     }
 
@@ -150,11 +177,14 @@ impl ChannelContext {
             widget_enabled: DashMap::new(),
             widget_value_bus: DashMap::new(),
             widget_connected: DashMap::new(),
+            widget_html_bus: DashMap::new(),
+            metrics: Arc::new(RuntimeMetrics::default()),
         })
     }
 
     #[cfg(all(not(feature = "epics-pvxs"), feature = "modbus"))]
     pub fn new(modbus_pool: Arc<crate::modbus_client::ModbusPool>) -> Arc<Self> {
+        let metrics = modbus_pool.metrics();
         Arc::new(Self {
             local_store: crate::local_channel::LocalStore::new(),
             modbus_pool,
@@ -165,6 +195,8 @@ impl ChannelContext {
             widget_enabled: DashMap::new(),
             widget_value_bus: DashMap::new(),
             widget_connected: DashMap::new(),
+            widget_html_bus: DashMap::new(),
+            metrics,
         })
     }
 
@@ -177,6 +209,8 @@ impl ChannelContext {
             widget_enabled: DashMap::new(),
             widget_value_bus: DashMap::new(),
             widget_connected: DashMap::new(),
+            widget_html_bus: DashMap::new(),
+            metrics: Arc::new(RuntimeMetrics::default()),
         })
     }
 }

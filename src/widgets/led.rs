@@ -108,15 +108,18 @@ fn render_led_html(
     tooltip: &str,
 ) -> Markup {
     let led_state = if is_on { "led-on" } else { "led-off" };
+    let show_status_text = config.show_status_text.unwrap_or(true);
     html! {
         div class="widget-inner" {
             div class="led-container" {
                 div class={"led-indicator " (led_state)} {
                     span class="led-light" {}
                 }
-                span class="led-status" {
-                    @if is_on { "ON" }
-                    @else { "OFF" }
+                @if show_status_text {
+                    span class="led-status" {
+                        @if is_on { "ON" }
+                        @else { "OFF" }
+                    }
                 }
             }
             label class="widget-label" {
