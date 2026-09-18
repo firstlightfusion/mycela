@@ -42,7 +42,6 @@ pub use serde;
 pub use serde_json;
 pub use tokio;
 pub use tracing;
-pub use tower_http;
 pub use tokio_stream;
 pub use async_stream;
 #[cfg(feature = "epics-pvxs")]

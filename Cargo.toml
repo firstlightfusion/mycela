@@ -30,8 +30,6 @@ required-features = ["epics-pvxs", "modbus", "ascii-tcp", "desktop"]
 # Web framework
 axum = "0.8.9"
 tokio = { version = "1.52.3", features = ["full"] }
-tower = "0.5.3"
-tower-http = { version = "0.6.11", features = ["fs", "trace", "cors"] }
 
 # HTML templating
 maud = { version = "0.27.0", features = ["axum"] }
@@ -50,15 +48,15 @@ tracing-appender = "0.2"
 dashmap = "6.2.1"
 
 # Async streams (for SSE)
-tokio-stream = "0.1.18"
-futures = "0.3.32"
+tokio-stream = "0.1.19"
+futures = "0.3.34"
 async-stream = "0.3"
 
-# Time handling
-chrono = "0.4.44"
+# UTC Time handling
+chrono = "0.4.45"
 
 # Charting (SVG-only backend, minimal deps)
-plotters = { version = "0.3", default-features = false, features = ["svg_backend", "line_series"] }
+plotters = { version = "0.3.7", default-features = false, features = ["svg_backend", "line_series"] }
 
 # EPICS (optional — enable with feature "epics-rs")
 pvxs = { version = "0.1.1", optional = true }
@@ -85,7 +83,7 @@ ascii-serial   = ["dep:ascii-serial"]
 desktop        = ["dep:wry", "dep:winit", "dep:tao"]
 
 [dev-dependencies]
-rand = "0.10.1"
+rand = "0.10.2"
 
 [profile.release]
 opt-level = "z"

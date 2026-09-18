@@ -218,19 +218,32 @@ Screen layout is defined in a JSON file (`examples/demo_config.json`):
 
 ## Technical Stack
 
-| Component | Version |
-|-----------|---------|
-| Axum | 0.8.9 |
-| Maud (HTML templating) | 0.27.0 |
-| Tokio | 1.52 |
-| tokio-modbus | 0.17 |
-| pvxs | local path (`../pvxs-rs`) |
-| DashMap | 6 |
-| plotters (SVG) | 0.3 |
-| tracing-appender | 0.2 |
-| wry (desktop) | 0.55 |
-| winit (desktop) | 0.30 |
-| tao(desktop) | |
+| Component | Version |Optional | License |
+|-----------|---------|---------|---------|
+| image | 0.25 | No | Apache-2.0 |
+| Maud | 0.27 | No | MIT or Apache-2.0 |
+| tokio | 1.52 | No | MIT |
+| tokio-stream | 0.1 | No | MIT |
+| futures | 0.3 | No | MIT or Apache-2.0 |
+| async-stream | 0.3 | No | MIT |
+| chrono | 0.4 | No | MIT or Apache-2.0 |
+| DashMap | 6.2 | No | MIT |
+| plotters (SVG) | 0.3 | No | MIT |
+| tracing | 0.1 | No | MIT |
+| tracing-subscriber | 0.3 | No | MIT |
+| tracing-appender | 0.2 | No | MIT |
+| serde | 1.0 | No | MIT or Apache-2.0 |
+| serde_json | 1.0 | No | MIT or Apache-2.0 |
+| axum (web and desktop - with loopback) | 0.8.9 | Yes | MIT |
+| wry (desktop) | 0.55 | Yes | MIT |
+| winit (desktop) | 0.30 | Yes | MIT |
+| tao(desktop) | 0.6 | Yes | MIT |
+| pvxs (epics protocol) | 0.1 | Yes | MPL-2.0 |
+| tokio-modbus (modbus protocol) | 0.17 | Yes | MIT or Apache-2.0 |
+| ascii-tcp (ascii protocol over TCP) | 0.1 | Yes | MPL-2.0 |
+| ascii-serial (ascii protocol over serial) | 0.1 | Yes | MPL-2.0 |
+| rand (dev-dependency) | 0.8 | Yes | MIT or Apache-2.0 |
+
 
 ## Development
 
