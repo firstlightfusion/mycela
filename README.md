@@ -220,6 +220,7 @@ Screen layout is defined in a JSON file (`examples/demo_config.json`):
 
 | Component | Version |Optional | License |
 |-----------|---------|---------|---------|
+| htmx (embedded JavaScript) | 4.0 | No | Zero-Clause BSD |
 | image | 0.25 | No | Apache-2.0 |
 | Maud | 0.27 | No | MIT or Apache-2.0 |
 | tokio | 1.52 | No | MIT |
