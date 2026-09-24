@@ -20,7 +20,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-#[cfg(any(feature = "epics-pvxs", feature = "ascii-tcp"))]
+#[cfg(any(feature = "epics-pvxs", feature = "modbus", feature = "ascii-tcp"))]
 use std::sync::Mutex;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
