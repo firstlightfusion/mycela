@@ -7,7 +7,7 @@ Mycela is a Rust framework for distributed control system UIs, combining an Axum
 ### Key Benefits
 
 - **Simple & Fast** — HTMX + SSE for real-time updates
-- **Multi-protocol** — EPICS PVAccess and Modbus TCP supported out of the box. More to come (OPC UA, MQTT, etc.)
+- **Multi-protocol** — EPICS via PVXS, Modbus TCP, ASCII TCP, and ASCII SERIAL adapters supported.
 - **Alarm aware** — Full alarm severity display (MAJOR / MINOR / INVALID / OFFLINE).
 - **Airgap ready** — All assets (HTMX, fonts, CSS) are embedded in the executable. Simple deployment to isolated networks. **Not to be used as a web service on the public internet.**
 
@@ -17,8 +17,10 @@ Mycela is a Rust framework for distributed control system UIs, combining an Axum
 ### Prerequisites
 
 - Rust 1.75+ (`rustup update`)
-- For EPICS: `pvxs-sys`
+- For EPICS: local `pvxs` crate at `../pvxs-rs`
 - For Modbus: `tokio-modbus`
+- For ASCII TCP: sibling crate `ascii-tcp`
+- For ASCII SERIAL: sibling crate `ascii-serial`
 
 ### Demo Server (browser-based)
 
@@ -31,6 +33,51 @@ cargo run --example demo_server --no-default-features --features epics
 
 # Modbus only
 cargo run --example demo_server --no-default-features --features modbus
+```
+
+ASCII protocol examples using the same tagged `protocol` shape:
+
+```json
+{
+  "id": "flow_ascii_tcp",
+  "type": "text_update",
+  "label": "Flow (ASCII TCP)",
+  "data_type": "double",
+  "protocol": {
+    "type": "ascii-tcp",
+    "host": "127.0.0.1",
+    "port": 4000,
+    "read_command": "READ FLOW",
+    "write_command": "SET FLOW {value}",
+    "line_ending": "crlf",
+    "response_mode": "number",
+    "scale": 1.0,
+    "offset": 0.0,
+    "min_poll_interval_ms": 500
+  }
+}
+```
+
+```json
+{
+  "id": "valve_ascii_serial",
+  "type": "toggle_button",
+  "label": "Valve Cmd (ASCII SERIAL)",
+  "data_type": "bool",
+  "protocol": {
+    "type": "ascii-serial",
+    "port_path": "COM3",
+    "baud_rate": 9600,
+    "data_bits": "eight",
+    "parity": "none",
+    "stop_bits": "one",
+    "read_command": "VALVE?",
+    "write_command": "VALVE {value}",
+    "line_ending": "lf",
+    "response_mode": "bool",
+    "min_poll_interval_ms": 500
+  }
+}
 ```
 
 Server starts at: **http://127.0.0.1:3000**
@@ -143,7 +190,7 @@ Screen layout is defined in a JSON file (`examples/demo_config.json`):
       "label": "Motor X Position",
       "data_type": "double",
       "protocol": {
-        "type": "epics-pva",
+        "type": "epics-pvxs",
         "pv_name": "demo:double"
       },
       "metadata": {
@@ -171,19 +218,33 @@ Screen layout is defined in a JSON file (`examples/demo_config.json`):
 
 ## Technical Stack
 
-| Component | Version |
-|-----------|---------|
-| Axum | 0.8.9 |
-| Maud (HTML templating) | 0.27.0 |
-| Tokio | 1.52 |
-| tokio-modbus | 0.17 |
-| pvxs-sys | 0.1.2 |
-| DashMap | 6 |
-| plotters (SVG) | 0.3 |
-| tracing-appender | 0.2 |
-| wry (desktop) | 0.55 |
-| winit (desktop) | 0.30 |
-| tao(desktop) | |
+| Component | Version |Optional | License |
+|-----------|---------|---------|---------|
+| htmx (embedded JavaScript) | 4.0 | No | Zero-Clause BSD |
+| image | 0.25 | No | Apache-2.0 |
+| Maud | 0.27 | No | MIT or Apache-2.0 |
+| tokio | 1.52 | No | MIT |
+| tokio-stream | 0.1 | No | MIT |
+| futures | 0.3 | No | MIT or Apache-2.0 |
+| async-stream | 0.3 | No | MIT |
+| chrono | 0.4 | No | MIT or Apache-2.0 |
+| DashMap | 6.2 | No | MIT |
+| plotters (SVG) | 0.3 | No | MIT |
+| tracing | 0.1 | No | MIT |
+| tracing-subscriber | 0.3 | No | MIT |
+| tracing-appender | 0.2 | No | MIT |
+| serde | 1.0 | No | MIT or Apache-2.0 |
+| serde_json | 1.0 | No | MIT or Apache-2.0 |
+| axum (web and desktop - with loopback) | 0.8.9 | Yes | MIT |
+| wry (desktop) | 0.55 | Yes | MIT |
+| winit (desktop) | 0.30 | Yes | MIT |
+| tao(desktop) | 0.6 | Yes | MIT |
+| pvxs (epics protocol) | 0.1 | Yes | MPL-2.0 |
+| tokio-modbus (modbus protocol) | 0.17 | Yes | MIT or Apache-2.0 |
+| ascii-tcp (ascii protocol over TCP) | 0.1 | Yes | MPL-2.0 |
+| ascii-serial (ascii protocol over serial) | 0.1 | Yes | MPL-2.0 |
+| rand (dev-dependency) | 0.8 | Yes | MIT or Apache-2.0 |
+
 
 ## Development
 

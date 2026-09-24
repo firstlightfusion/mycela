@@ -15,36 +15,40 @@ mod test_ipc_dispatch {
             screens: Vec::new(),
         });
 
-        #[cfg(feature = "epics")]
+        #[cfg(feature = "epics-pvxs")]
         let epics_ctx = Arc::new(Mutex::new(
-            mycela::pvxs_sys::Context::from_env().expect("pvxs context required"),
+            mycela::pvxs::Context::from_env().expect("pvxs context required"),
         ));
 
         #[cfg(feature = "modbus")]
         let modbus_pool = mycela::modbus_client::ModbusPool::new();
 
-        #[cfg(all(feature = "epics", feature = "modbus"))]
+        #[cfg(all(feature = "epics-pvxs", feature = "modbus"))]
         let channel_ctx = ChannelContext::new(epics_ctx, modbus_pool);
 
-        #[cfg(all(feature = "epics", not(feature = "modbus")))]
+        #[cfg(all(feature = "epics-pvxs", not(feature = "modbus")))]
         let channel_ctx = ChannelContext::new(epics_ctx);
 
-        #[cfg(all(not(feature = "epics"), feature = "modbus"))]
+        #[cfg(all(not(feature = "epics-pvxs"), feature = "modbus"))]
         let channel_ctx = ChannelContext::new(modbus_pool);
 
-        #[cfg(all(not(feature = "epics"), not(feature = "modbus")))]
+        #[cfg(all(not(feature = "epics-pvxs"), not(feature = "modbus")))]
         let channel_ctx = ChannelContext::new();
 
         AppState {
-            #[cfg(feature = "epics")]
+            #[cfg(feature = "epics-pvxs")]
             pv_server: Arc::new(Mutex::new(None)),
             config,
             channel_ctx,
             modbus_task: Arc::new(Mutex::new(None)),
-            #[cfg(feature = "epics")]
+            #[cfg(feature = "epics-pvxs")]
             epics_start_hook: None,
             #[cfg(feature = "modbus")]
             modbus_start_hook: None,
+            #[cfg(feature = "ascii-tcp")]
+            ascii_tcp_task: Arc::new(Mutex::new(None)),
+            #[cfg(feature = "ascii-tcp")]
+            ascii_tcp_start_hook: None,
             loopback_token: None,
         }
     }
@@ -253,9 +257,49 @@ mod test_ipc_dispatch {
         );
     }
 
+    // ── Feature: ASCII TCP ───────────────────────────────────────────────────
+
+    #[cfg(feature = "ascii-tcp")]
+    #[tokio::test]
+    async fn test_ascii_tcp_server_lifecycle() {
+        let mut state = make_app_state();
+        state.ascii_tcp_start_hook = Some(Arc::new(|_state| {
+            Ok(tokio::spawn(std::future::pending::<()>()))
+        }));
+
+        let status = dispatch_request(
+            &state,
+            make_request(IpcCommand::AsciiTcpServerStatusGet),
+            None,
+        )
+        .await;
+        assert_eq!(status.result.expect("status result")["running"], false);
+
+        let mut start = make_request(IpcCommand::AsciiTcpServerStart);
+        start.token = Some("tok".to_string());
+        let started = dispatch_request(&state, start, Some("tok")).await;
+        assert!(started.ok);
+        assert!(state.is_ascii_tcp_running());
+
+        let mut duplicate_start = make_request(IpcCommand::AsciiTcpServerStart);
+        duplicate_start.token = Some("tok".to_string());
+        let duplicate = dispatch_request(&state, duplicate_start, Some("tok")).await;
+        assert!(!duplicate.ok);
+        assert_eq!(
+            duplicate.error.expect("duplicate error").code,
+            IpcErrorCode::StateConflict
+        );
+
+        let mut stop = make_request(IpcCommand::AsciiTcpServerStop);
+        stop.token = Some("tok".to_string());
+        let stopped = dispatch_request(&state, stop, Some("tok")).await;
+        assert!(stopped.ok);
+        assert!(!state.is_ascii_tcp_running());
+    }
+
     // ── Feature: epics ────────────────────────────────────────────────────────
 
-    #[cfg(not(feature = "epics"))]
+    #[cfg(not(feature = "epics-pvxs"))]
     #[tokio::test]
     async fn test_epics_server_start_returns_cmd_unknown_when_feature_disabled() {
         let state = make_app_state();
@@ -271,7 +315,7 @@ mod test_ipc_dispatch {
         );
     }
 
-    #[cfg(not(feature = "epics"))]
+    #[cfg(not(feature = "epics-pvxs"))]
     #[tokio::test]
     async fn test_epics_server_stop_returns_cmd_unknown_when_feature_disabled() {
         let state = make_app_state();
@@ -287,7 +331,7 @@ mod test_ipc_dispatch {
         );
     }
 
-    #[cfg(not(feature = "epics"))]
+    #[cfg(not(feature = "epics-pvxs"))]
     #[tokio::test]
     async fn test_epics_server_status_returns_not_running_when_feature_disabled() {
         let state = make_app_state();
@@ -299,7 +343,7 @@ mod test_ipc_dispatch {
         assert_eq!(response.result.expect("result present")["running"], false);
     }
 
-    #[cfg(not(feature = "epics"))]
+    #[cfg(not(feature = "epics-pvxs"))]
     #[tokio::test]
     async fn test_epics_pv_read_returns_payload_invalid_for_missing_widget_without_epics() {
         let state = make_app_state();
@@ -315,7 +359,7 @@ mod test_ipc_dispatch {
         );
     }
 
-    #[cfg(feature = "epics")]
+    #[cfg(feature = "epics-pvxs")]
     #[tokio::test]
     async fn test_epics_server_status_returns_not_running_when_no_server_started() {
         let state = make_app_state();
@@ -327,7 +371,7 @@ mod test_ipc_dispatch {
         assert_eq!(response.result.expect("result present")["running"], false);
     }
 
-    #[cfg(feature = "epics")]
+    #[cfg(feature = "epics-pvxs")]
     #[tokio::test]
     async fn test_epics_server_stop_returns_state_conflict_when_not_running() {
         let state = make_app_state();

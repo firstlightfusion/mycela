@@ -23,6 +23,70 @@
         return typeof window.MYCELA_IPC_TOKEN === 'string';
     }
 
+    function deferHtmxEventSourceConnection() {
+        if (!window.htmx || isIpcTransport()) {
+            return;
+        }
+
+        const createEventSource = window.htmx.createEventSource;
+        window.htmx.createEventSource = function(url) {
+            let source = null;
+            let closed = false;
+            let errorHandler = null;
+            const listeners = [];
+            const deferredSource = {
+                addEventListener: function(type, listener, options) {
+                    listeners.push({ type: type, listener: listener, options: options });
+                    if (source) {
+                        source.addEventListener(type, listener, options);
+                    }
+                },
+                removeEventListener: function(type, listener, options) {
+                    const index = listeners.findIndex(function(entry) {
+                        return entry.type === type && entry.listener === listener;
+                    });
+                    if (index !== -1) {
+                        listeners.splice(index, 1);
+                    }
+                    if (source) {
+                        source.removeEventListener(type, listener, options);
+                    }
+                },
+                close: function() {
+                    closed = true;
+                    if (source) {
+                        source.close();
+                    }
+                }
+            };
+
+            Object.defineProperty(deferredSource, 'onerror', {
+                get: function() { return errorHandler; },
+                set: function(handler) {
+                    errorHandler = handler;
+                    if (source) {
+                        source.onerror = handler;
+                    }
+                }
+            });
+
+            window.setTimeout(function() {
+                if (closed) {
+                    return;
+                }
+                source = createEventSource(url);
+                source.onerror = errorHandler;
+                listeners.forEach(function(entry) {
+                    source.addEventListener(entry.type, entry.listener, entry.options);
+                });
+            }, 0);
+
+            return deferredSource;
+        };
+    }
+
+    deferHtmxEventSourceConnection();
+
     function mapPathToCommand(method, path) {
         const normalizedMethod = String(method || 'get').toLowerCase();
         if (normalizedMethod === 'post' && path === '/api/server/start') return 'epics_server_start';
@@ -31,6 +95,9 @@
         if (normalizedMethod === 'post' && path === '/api/modbus/start') return 'modbus_sim_start';
         if (normalizedMethod === 'post' && path === '/api/modbus/stop') return 'modbus_sim_stop';
         if (normalizedMethod === 'get' && path === '/api/modbus/status') return 'modbus_sim_status_get';
+        if (normalizedMethod === 'post' && path === '/api/ascii-tcp/start') return 'ascii_tcp_server_start';
+        if (normalizedMethod === 'post' && path === '/api/ascii-tcp/stop') return 'ascii_tcp_server_stop';
+        if (normalizedMethod === 'get' && path === '/api/ascii-tcp/status') return 'ascii_tcp_server_status_get';
         return null;
     }
 
@@ -121,6 +188,9 @@
         if (path === '/api/modbus/status') {
             return '<div id="modbus-status" class="' + (result.running ? 'success' : 'warning') + ' screen-status-pill"><span>' + (result.running ? 'Modbus TCP Running' : 'Modbus TCP Stopped') + '</span></div>';
         }
+        if (path === '/api/ascii-tcp/status') {
+            return '<div id="ascii-tcp-status" class="' + (result.running ? 'success' : 'warning') + ' screen-status-pill"><span>' + (result.running ? 'ASCII TCP Running' : 'ASCII TCP Stopped') + '</span></div>';
+        }
         return '<div class="warning">Unknown status path</div>';
     }
 
@@ -132,6 +202,8 @@
         if (path === '/api/server/stop') return '<div class="warning">EPICS Server Stopped</div>';
         if (path === '/api/modbus/start') return '<div class="success">Modbus TCP Running</div>';
         if (path === '/api/modbus/stop') return '<div class="warning">Modbus TCP Stopped</div>';
+        if (path === '/api/ascii-tcp/start') return '<div class="success">ASCII TCP Running</div>';
+        if (path === '/api/ascii-tcp/stop') return '<div class="warning">ASCII TCP Stopped</div>';
         return '<div class="success">Request completed</div>';
     }
 
@@ -163,6 +235,12 @@
         }
         if (path.indexOf('/api/modbus/') === 0) {
             const status = document.getElementById('modbus-status');
+            if (status) {
+                runStatusRequest(status);
+            }
+        }
+        if (path.indexOf('/api/ascii-tcp/') === 0) {
+            const status = document.getElementById('ascii-tcp-status');
             if (status) {
                 runStatusRequest(status);
             }

@@ -1,6 +1,6 @@
 use crate::app::AppState;
 
-#[cfg(feature = "epics")]
+#[cfg(feature = "epics-pvxs")]
 use crate::server_setup::setup_server_pvs;
 
 #[derive(Debug)]
@@ -24,15 +24,15 @@ impl std::fmt::Display for ProtocolControlError {
 
 impl std::error::Error for ProtocolControlError {}
 
-#[cfg(feature = "epics")]
-pub async fn start_epics_server(state: &AppState) -> Result<pvxs_sys::Server, ProtocolControlError> {
+#[cfg(feature = "epics-pvxs")]
+pub async fn start_epics_server(state: &AppState) -> Result<pvxs::Server, ProtocolControlError> {
     if state.is_server_running() {
         return Err(ProtocolControlError::AlreadyRunning("EPICS server already running"));
     }
 
     let config = state.config.clone();
-    let result = tokio::task::spawn_blocking(move || -> pvxs_sys::Result<pvxs_sys::Server> {
-        let server = pvxs_sys::Server::start_from_env()?;
+    let result = tokio::task::spawn_blocking(move || -> pvxs::Result<pvxs::Server> {
+        let server = pvxs::Server::start_from_env()?;
         for screen in &config.screens {
             setup_server_pvs(&server, &screen.widgets)?;
         }
@@ -47,7 +47,7 @@ pub async fn start_epics_server(state: &AppState) -> Result<pvxs_sys::Server, Pr
     }
 }
 
-#[cfg(feature = "epics")]
+#[cfg(feature = "epics-pvxs")]
 pub async fn start_epics_runtime(state: &AppState) -> Result<(), ProtocolControlError> {
     let server = start_epics_server(state).await?;
 
@@ -62,12 +62,12 @@ pub async fn start_epics_runtime(state: &AppState) -> Result<(), ProtocolControl
     Ok(())
 }
 
-#[cfg(feature = "epics")]
-pub fn set_epics_server(state: &AppState, server: pvxs_sys::Server) {
+#[cfg(feature = "epics-pvxs")]
+pub fn set_epics_server(state: &AppState, server: pvxs::Server) {
     *state.pv_server.lock().unwrap() = Some(server);
 }
 
-#[cfg(feature = "epics")]
+#[cfg(feature = "epics-pvxs")]
 pub async fn stop_epics_server(state: &AppState) -> Result<(), ProtocolControlError> {
     let server = state.pv_server.lock().unwrap().take();
     let Some(server) = server else {
@@ -81,14 +81,14 @@ pub async fn stop_epics_server(state: &AppState) -> Result<(), ProtocolControlEr
     }
 }
 
-#[cfg(not(feature = "epics"))]
+#[cfg(not(feature = "epics-pvxs"))]
 pub async fn start_epics_runtime(_state: &AppState) -> Result<(), ProtocolControlError> {
     Err(ProtocolControlError::Operation(
         "EPICS feature is not enabled".to_string(),
     ))
 }
 
-#[cfg(not(feature = "epics"))]
+#[cfg(not(feature = "epics-pvxs"))]
 pub async fn stop_epics_server(_state: &AppState) -> Result<(), ProtocolControlError> {
     Err(ProtocolControlError::Operation(
         "EPICS feature is not enabled".to_string(),
@@ -159,5 +159,51 @@ pub fn stop_modbus_tasks(state: &AppState) -> Result<(), ProtocolControlError> {
 pub fn stop_modbus_tasks(_state: &AppState) -> Result<(), ProtocolControlError> {
     Err(ProtocolControlError::Operation(
         "Modbus feature is not enabled".to_string(),
+    ))
+}
+
+#[cfg(feature = "ascii-tcp")]
+pub fn start_ascii_tcp_runtime(state: &AppState) -> Result<(), ProtocolControlError> {
+    if state.is_ascii_tcp_running() {
+        return Err(ProtocolControlError::AlreadyRunning(
+            "ASCII TCP server already running",
+        ));
+    }
+
+    let Some(hook) = state.ascii_tcp_start_hook.as_ref() else {
+        return Err(ProtocolControlError::Operation(
+            "ASCII TCP start hook is not configured".to_string(),
+        ));
+    };
+
+    let task = hook(state)?;
+    *state.ascii_tcp_task.lock().unwrap() = Some(task);
+    Ok(())
+}
+
+#[cfg(not(feature = "ascii-tcp"))]
+pub fn start_ascii_tcp_runtime(_state: &AppState) -> Result<(), ProtocolControlError> {
+    Err(ProtocolControlError::Operation(
+        "ASCII TCP feature is not enabled".to_string(),
+    ))
+}
+
+#[cfg(feature = "ascii-tcp")]
+pub fn stop_ascii_tcp_runtime(state: &AppState) -> Result<(), ProtocolControlError> {
+    let task = state.ascii_tcp_task.lock().unwrap().take();
+    let Some(task) = task else {
+        return Err(ProtocolControlError::NotRunning(
+            "ASCII TCP server is not running",
+        ));
+    };
+
+    task.abort();
+    Ok(())
+}
+
+#[cfg(not(feature = "ascii-tcp"))]
+pub fn stop_ascii_tcp_runtime(_state: &AppState) -> Result<(), ProtocolControlError> {
+    Err(ProtocolControlError::Operation(
+        "ASCII TCP feature is not enabled".to_string(),
     ))
 }

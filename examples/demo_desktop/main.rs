@@ -2,10 +2,13 @@
 mod epics_simulator;
 #[path = "../demo_server/modbus_simulator.rs"]
 mod modbus_simulator;
+#[path = "../demo_server/ascii_tcp_simulator.rs"]
+mod ascii_tcp_simulator;
 mod assets;
 
 use mycela::app::{
-    modbus_status, server_status, stop_modbus, stop_server, AppState,
+    ascii_tcp_status, modbus_status, server_status, start_ascii_tcp, stop_ascii_tcp,
+    stop_modbus, stop_server, AppState,
 };
 use mycela::axum::{
     extract::{Path, State},
@@ -19,7 +22,7 @@ use mycela::config::{AppConfig, ScreenConfig, WidgetConfig};
 use mycela::desktop::{run_desktop, DesktopRuntimeHooks};
 use mycela::ipc::{IpcEvent, IpcMessageKind};
 use mycela::protocol_control::{self, ProtocolControlError};
-use mycela::pvxs_sys;
+use mycela::pvxs;
 use mycela::server_setup::setup_server_pvs;
 use mycela::{modbus_client, widgets};
 use std::borrow::Cow;
@@ -172,13 +175,13 @@ fn build_app_state(config: AppConfig, loopback_token: Option<String>) -> AppStat
     let pv_server = {
         let has_server_pvs = all_widgets
             .iter()
-            .any(|widget| widget.epics_pva().and_then(|epics| epics.server.as_ref()).is_some());
+            .any(|widget| widget.epics_pvxs().and_then(|epics| epics.server.as_ref()).is_some());
 
         if !has_server_pvs {
             tracing::info!("No server PVs configured, running in client-only mode");
             Arc::new(Mutex::new(None))
         } else {
-            let server = pvxs_sys::Server::start_from_env().expect("PVXS server start");
+            let server = pvxs::Server::start_from_env().expect("PVXS server start");
             for screen in &config.screens {
                 setup_server_pvs(&server, &screen.widgets).expect("PVXS setup");
             }
@@ -189,10 +192,12 @@ fn build_app_state(config: AppConfig, loopback_token: Option<String>) -> AppStat
     };
 
     let epics_ctx = Arc::new(Mutex::new(
-        pvxs_sys::Context::from_env().expect("PVXS context"),
+        pvxs::Context::from_env().expect("PVXS context"),
     ));
     let (sim_h, listener_h) = modbus_simulator::start_modbus_simulator(5020);
     tracing::info!("Modbus TCP simulator started on port 5020");
+    let ascii_tcp_task = ascii_tcp_simulator::start_ascii_tcp_simulator(4000);
+    tracing::info!("ASCII TCP demo simulator started on port 4000");
     let modbus_pool = modbus_client::ModbusPool::new();
     let channel_ctx = ChannelContext::new(epics_ctx, modbus_pool);
 
@@ -215,6 +220,10 @@ fn build_app_state(config: AppConfig, loopback_token: Option<String>) -> AppStat
             let (sim_h, listener_h) = modbus_simulator::start_modbus_simulator(5020);
             Ok(vec![sim_h, listener_h])
         })),
+        ascii_tcp_task: Arc::new(Mutex::new(Some(ascii_tcp_task))),
+        ascii_tcp_start_hook: Some(Arc::new(|_state| {
+            Ok(ascii_tcp_simulator::start_ascii_tcp_simulator(4000))
+        })),
         loopback_token,
     }
 }
@@ -228,6 +237,9 @@ fn build_routes(state: AppState) -> Router {
         .route("/api/modbus/start", post(start_modbus))
         .route("/api/modbus/stop", post(stop_modbus))
         .route("/api/modbus/status", get(modbus_status))
+        .route("/api/ascii-tcp/start", post(start_ascii_tcp))
+        .route("/api/ascii-tcp/stop", post(stop_ascii_tcp))
+        .route("/api/ascii-tcp/status", get(ascii_tcp_status))
         .route("/static/{*path}", get(static_file_handler))
         .with_state(state)
 }

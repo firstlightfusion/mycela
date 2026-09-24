@@ -1,6 +1,10 @@
 use crate::channel::ChannelContext;
+#[cfg(feature = "ascii-tcp")]
+use crate::config::AsciiTcpConfig;
 #[cfg(feature = "modbus")]
-use crate::config::ModbusTCPConfig;
+use crate::config::ModbusTcpConfig;
+#[cfg(feature = "ascii-serial")]
+use crate::config::AsciiSerialConfig;
 use crate::config::{ActionConfig, ProtocolConfig, ScreenConfig, WidgetConfig, WidgetType};
 use maud::{html, Markup, PreEscaped};
 use std::sync::Arc;
@@ -197,6 +201,16 @@ pub fn render_screen_with_options(
             })
         })
         .unwrap_or(false);
+    let has_ascii_tcp_controls = config
+        .actions
+        .as_ref()
+        .map(|actions| {
+            actions.iter().any(|action| {
+                matches!(action,
+            ActionConfig::Api { path, .. } if path.starts_with("/api/ascii-tcp/"))
+            })
+        })
+        .unwrap_or(false);
 
     html! {
         (maud::DOCTYPE)
@@ -234,7 +248,7 @@ pub fn render_screen_with_options(
                             a href="/" class="back-link" { "← Home" }
                         }
                     }
-                    @if has_server_controls || has_modbus_controls {
+                    @if has_server_controls || has_modbus_controls || has_ascii_tcp_controls {
                         div class="screen-status-strip" {
                             @if has_server_controls {
                                 div id="server-status" class="warning screen-status-pill"
@@ -248,6 +262,13 @@ pub fn render_screen_with_options(
                                     data-myce-status-path="/api/modbus/status"
                                     data-myce-method="get" {
                                     span { "Modbus Status" }
+                                }
+                            }
+                            @if has_ascii_tcp_controls {
+                                div id="ascii-tcp-status" class="warning screen-status-pill"
+                                    data-myce-status-path="/api/ascii-tcp/status"
+                                    data-myce-method="get" {
+                                    span { "ASCII TCP Status" }
                                 }
                             }
                         }
@@ -400,8 +421,8 @@ pub async fn write_channel(
                 }
             }
         }
-        #[cfg(feature = "epics")]
-        Some(ProtocolConfig::EpicsPva(e)) => {
+        #[cfg(feature = "epics-pvxs")]
+        Some(ProtocolConfig::EpicsPvxs(e)) => {
             write_channel_epics(
                 &config.id,
                 &e.pv_name,
@@ -415,38 +436,46 @@ pub async fn write_channel(
         Some(ProtocolConfig::ModbusTcp(m)) => {
             write_channel_modbus(&config.id, m.clone(), value_str, channel_ctx).await
         }
+        #[cfg(feature = "ascii-tcp")]
+        Some(ProtocolConfig::AsciiTcp(a)) => {
+            write_channel_ascii_tcp(&config.id, a.clone(), value_str, channel_ctx).await
+        }
+        #[cfg(feature = "ascii-serial")]
+        Some(ProtocolConfig::AsciiSerial(s)) => {
+            write_channel_ascii_serial(&config.id, s.clone(), value_str).await
+        }
         _ => html! { span class="write-err" { "No protocol configured for this widget" } },
     }
 }
 
-#[cfg(feature = "epics")]
+#[cfg(feature = "epics-pvxs")]
 async fn write_channel_epics(
     widget_id: &str,
     pv_name: &str,
     data_type: &Option<String>,
     value_str: String,
-    write_ctx: Arc<std::sync::Mutex<pvxs_sys::Context>>,
+    write_ctx: Arc<std::sync::Mutex<pvxs::Context>>,
 ) -> Markup {
     let pv = pv_name.to_string();
     let dt = data_type.clone();
-    let result = tokio::task::spawn_blocking(move || -> pvxs_sys::Result<()> {
+    let result = tokio::task::spawn_blocking(move || -> pvxs::Result<()> {
         let mut ctx = write_ctx.lock().unwrap();
         match dt.as_deref() {
             Some("int32") | Some("int") | Some("integer") | Some("bool") => {
                 let v: i32 = value_str.trim().parse().map_err(|_| {
-                    pvxs_sys::PvxsError::new(format!("invalid int32: '{}'", value_str.trim()))
+                    pvxs::PvxsError::new(format!("invalid int32: '{}'", value_str.trim()))
                 })?;
                 ctx.put_int32(&pv, v, 5.0)
             }
             Some("enum") => {
                 let v: i16 = value_str.trim().parse().map_err(|_| {
-                    pvxs_sys::PvxsError::new(format!("invalid enum index: '{}'", value_str.trim()))
+                    pvxs::PvxsError::new(format!("invalid enum index: '{}'", value_str.trim()))
                 })?;
                 ctx.put_enum(&pv, v, 5.0)
             }
             Some("double") | Some("float") | Some("f64") | Some("f32") => {
                 let v: f64 = value_str.trim().parse().map_err(|_| {
-                    pvxs_sys::PvxsError::new(format!("invalid float: '{}'", value_str.trim()))
+                    pvxs::PvxsError::new(format!("invalid float: '{}'", value_str.trim()))
                 })?;
                 ctx.put_double(&pv, v, 5.0)
             }
@@ -473,7 +502,7 @@ async fn write_channel_epics(
 #[cfg(feature = "modbus")]
 async fn write_channel_modbus(
     widget_id: &str,
-    m: ModbusTCPConfig,
+    m: ModbusTcpConfig,
     value_str: String,
     channel_ctx: Arc<ChannelContext>,
 ) -> Markup {
@@ -494,6 +523,43 @@ async fn write_channel_modbus(
         }
         Err(e) => {
             tracing::error!("[{}] write_channel Modbus error: {}", widget_id, e);
+            html! { span class="write-err" { "Error: " (e) } }
+        }
+    }
+}
+
+#[cfg(feature = "ascii-tcp")]
+async fn write_channel_ascii_tcp(
+    widget_id: &str,
+    a: AsciiTcpConfig,
+    value_str: String,
+    channel_ctx: Arc<ChannelContext>,
+) -> Markup {
+    match crate::ascii_tcp_client::write(&a, &value_str, &channel_ctx.ascii_tcp_pool).await {
+        Ok(()) => {
+            tracing::info!("[{}] write_channel ASCII TCP OK", widget_id);
+            html! { span class="write-ok" { "OK" } }
+        }
+        Err(e) => {
+            tracing::error!("[{}] write_channel ASCII TCP error: {}", widget_id, e);
+            html! { span class="write-err" { "Error: " (e) } }
+        }
+    }
+}
+
+#[cfg(feature = "ascii-serial")]
+async fn write_channel_ascii_serial(
+    widget_id: &str,
+    s: AsciiSerialConfig,
+    value_str: String,
+) -> Markup {
+    match crate::ascii_serial_client::ascii_serial_write(&s, &value_str).await {
+        Ok(()) => {
+            tracing::info!("[{}] write_channel SERIAL TCP OK", widget_id);
+            html! { span class="write-ok" { "OK" } }
+        }
+        Err(e) => {
+            tracing::error!("[{}] write_channel SERIAL TCP error: {}", widget_id, e);
             html! { span class="write-err" { "Error: " (e) } }
         }
     }

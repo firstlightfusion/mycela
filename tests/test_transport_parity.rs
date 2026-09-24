@@ -23,37 +23,41 @@ mod test_transport_parity {
             }],
         });
 
-        #[cfg(feature = "epics")]
+        #[cfg(feature = "epics-pvxs")]
         let epics_ctx = Arc::new(Mutex::new(
-            mycela::pvxs_sys::Context::from_env().expect("pvxs context required"),
+            mycela::pvxs::Context::from_env().expect("pvxs context required"),
         ));
 
         #[cfg(feature = "modbus")]
         let modbus_pool = mycela::modbus_client::ModbusPool::new();
 
-        #[cfg(all(feature = "epics", feature = "modbus"))]
+        #[cfg(all(feature = "epics-pvxs", feature = "modbus"))]
         let channel_ctx = ChannelContext::new(epics_ctx, modbus_pool);
 
-        #[cfg(all(feature = "epics", not(feature = "modbus")))]
+        #[cfg(all(feature = "epics-pvxs", not(feature = "modbus")))]
         let channel_ctx = ChannelContext::new(epics_ctx);
 
-        #[cfg(all(not(feature = "epics"), feature = "modbus"))]
+        #[cfg(all(not(feature = "epics-pvxs"), feature = "modbus"))]
         let channel_ctx = ChannelContext::new(modbus_pool);
 
-        #[cfg(all(not(feature = "epics"), not(feature = "modbus")))]
+        #[cfg(all(not(feature = "epics-pvxs"), not(feature = "modbus")))]
         let channel_ctx = ChannelContext::new();
 
         AppState {
-            #[cfg(feature = "epics")]
+            #[cfg(feature = "epics-pvxs")]
             pv_server: Arc::new(Mutex::new(None)),
             config,
             channel_ctx,
             #[cfg(feature = "modbus")]
             modbus_task: Arc::new(Mutex::new(None)),
-            #[cfg(feature = "epics")]
+            #[cfg(feature = "epics-pvxs")]
             epics_start_hook: None,
             #[cfg(feature = "modbus")]
             modbus_start_hook: None,
+            #[cfg(feature = "ascii-tcp")]
+            ascii_tcp_task: Arc::new(Mutex::new(None)),
+            #[cfg(feature = "ascii-tcp")]
+            ascii_tcp_start_hook: None,
             loopback_token: None,
         }
     }
@@ -100,6 +104,27 @@ mod test_transport_parity {
             .to_string();
 
         assert_eq!(ipc_html, http_html);
+    }
+
+    #[tokio::test]
+    async fn shared_widget_html_subscription_has_one_owner() {
+        let widget = WidgetConfig {
+            id: "w1".to_string(),
+            widget_type: WidgetType::TextUpdate,
+            label: "Widget 1".to_string(),
+            ..Default::default()
+        };
+        let state = make_app_state_with_widget(widget);
+
+        let (mut first_rx, first_is_owner) = state.channel_ctx.subscribe_widget_html("w1");
+        let (second_rx, second_is_owner) = state.channel_ctx.subscribe_widget_html("w1");
+        assert!(first_is_owner);
+        assert!(!second_is_owner);
+
+        state.channel_ctx.publish_widget_html("w1", "updated".to_string());
+        first_rx.changed().await.unwrap();
+        assert_eq!(first_rx.borrow().as_str(), "updated");
+        assert_eq!(second_rx.borrow().as_str(), "updated");
     }
 
     #[tokio::test]

@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
+use std::collections::VecDeque;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
 use tokio::sync::{mpsc, oneshot};
@@ -8,21 +9,71 @@ use tokio_modbus::client::tcp;
 use tokio_modbus::prelude::*;
 
 use crate::channel::{ChannelEvent, ChannelValue};
-use crate::config::{ModbusRegisterType, ModbusTCPConfig, ProtocolConfig, WidgetConfig};
+use crate::config::{ModbusRegisterType, ModbusTcpConfig, ProtocolConfig, WidgetConfig};
+
+use crate::metrics::RuntimeMetrics;
+
+const READ_QUEUE_CAPACITY: usize = 256;
+const WRITE_QUEUE_CAPACITY: usize = 32;
+
+struct QueueTicket {
+    metrics: Arc<RuntimeMetrics>,
+    pending: bool,
+}
+
+impl QueueTicket {
+    fn new(metrics: Arc<RuntimeMetrics>) -> Self {
+        metrics.increment_modbus_queue_depth();
+        Self {
+            metrics,
+            pending: true,
+        }
+    }
+
+    fn mark_dequeued(&mut self) {
+        if self.pending {
+            self.pending = false;
+            self.metrics.decrement_modbus_queue_depth();
+        }
+    }
+}
+
+impl Drop for QueueTicket {
+    fn drop(&mut self) {
+        if self.pending {
+            self.metrics.decrement_modbus_queue_depth();
+        }
+    }
+}
+
+struct ReadRequest {
+    register: u16,
+    register_type: ModbusRegisterType,
+    word_count: u8,
+    respond: oneshot::Sender<Result<Vec<u16>, String>>,
+    _queue_ticket: QueueTicket,
+}
+
+struct WriteRequest {
+    register: u16,
+    register_type: ModbusRegisterType,
+    values: Vec<u16>,
+    respond: oneshot::Sender<Result<(), String>>,
+    _queue_ticket: QueueTicket,
+}
 
 enum DeviceRequest {
-    Read {
-        register: u16,
-        register_type: ModbusRegisterType,
-        word_count: u8,
-        respond: oneshot::Sender<Result<Vec<u16>, String>>,
-    },
-    Write {
-        register: u16,
-        register_type: ModbusRegisterType,
-        values: Vec<u16>,
-        respond: oneshot::Sender<Result<(), String>>,
-    },
+    Read(ReadRequest),
+    Write(WriteRequest),
+}
+
+impl DeviceRequest {
+    fn mark_dequeued(&mut self) {
+        match self {
+            Self::Read(request) => request._queue_ticket.mark_dequeued(),
+            Self::Write(request) => request._queue_ticket.mark_dequeued(),
+        }
+    }
 }
 
 /// A cloneable handle to a per-device connection-manager task.
@@ -30,7 +81,9 @@ enum DeviceRequest {
 /// Multiple widgets sharing the same `host:port:unit_id` key get the same
 /// handle, so only one TCP connection is ever opened per device.
 pub struct DeviceHandle {
-    tx: mpsc::UnboundedSender<DeviceRequest>,
+    read_tx: mpsc::Sender<ReadRequest>,
+    write_tx: mpsc::Sender<WriteRequest>,
+    metrics: Arc<RuntimeMetrics>,
 }
 
 impl DeviceHandle {
@@ -41,14 +94,20 @@ impl DeviceHandle {
         word_count: u8,
     ) -> Result<Vec<u16>, String> {
         let (respond, rx) = oneshot::channel();
-        self.tx
-            .send(DeviceRequest::Read {
+        let queue_ticket = QueueTicket::new(self.metrics.clone());
+        if self.read_tx
+            .send(ReadRequest {
                 register,
                 register_type,
                 word_count,
                 respond,
+                _queue_ticket: queue_ticket,
             })
-            .map_err(|_| "device task closed".to_string())?;
+            .await
+            .is_err()
+        {
+            return Err("device task closed".to_string());
+        }
         rx.await
             .map_err(|_| "device task dropped respond channel".to_string())?
     }
@@ -57,7 +116,7 @@ impl DeviceHandle {
     /// can no longer send requests.  The caller should re-fetch a fresh handle
     /// from the pool (which will spawn a new device task).
     pub fn is_closed(&self) -> bool {
-        self.tx.is_closed()
+        self.read_tx.is_closed() || self.write_tx.is_closed()
     }
 
     pub async fn write(
@@ -66,17 +125,27 @@ impl DeviceHandle {
         register_type: ModbusRegisterType,
         values: Vec<u16>,
     ) -> Result<(), String> {
+        let started = Instant::now();
         let (respond, rx) = oneshot::channel();
-        self.tx
-            .send(DeviceRequest::Write {
+        let queue_ticket = QueueTicket::new(self.metrics.clone());
+        if self.write_tx
+            .send(WriteRequest {
                 register,
                 register_type,
                 values,
                 respond,
+                _queue_ticket: queue_ticket,
             })
-            .map_err(|_| "device task closed".to_string())?;
-        rx.await
-            .map_err(|_| "device task dropped respond channel".to_string())?
+            .await
+            .is_err()
+        {
+            self.metrics.record_modbus_write_latency(started.elapsed().as_micros() as u64);
+            return Err("device task closed".to_string());
+        }
+        let result = rx.await
+            .map_err(|_| "device task dropped respond channel".to_string())?;
+        self.metrics.record_modbus_write_latency(started.elapsed().as_micros() as u64);
+        result
     }
 }
 
@@ -86,6 +155,7 @@ impl DeviceHandle {
 pub struct ModbusPool {
     devices: DashMap<String, Arc<DeviceHandle>>,
     task_handles: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    metrics: Arc<RuntimeMetrics>,
 }
 
 impl ModbusPool {
@@ -93,7 +163,12 @@ impl ModbusPool {
         Arc::new(Self {
             devices: DashMap::new(),
             task_handles: std::sync::Mutex::new(Vec::new()),
+            metrics: Arc::new(RuntimeMetrics::default()),
         })
+    }
+
+    pub fn metrics(&self) -> Arc<RuntimeMetrics> {
+        self.metrics.clone()
     }
 
     /// Abort all device connection tasks and clear the pool.
@@ -109,20 +184,29 @@ impl ModbusPool {
 
     /// Return the existing handle for this device or create a new connection-manager task.
     pub fn get_or_create(&self, host: &str, port: u16, unit_id: u8) -> Arc<DeviceHandle> {
+        use dashmap::mapref::entry::Entry;
+
         let key = format!("{}:{}:{}", host, port, unit_id);
-        if let Some(h) = self.devices.get(&key) {
-            return h.clone();
+        match self.devices.entry(key) {
+            Entry::Occupied(entry) => entry.get().clone(),
+            Entry::Vacant(entry) => {
+                let (read_tx, read_rx) = mpsc::channel(READ_QUEUE_CAPACITY);
+                let (write_tx, write_rx) = mpsc::channel(WRITE_QUEUE_CAPACITY);
+                let handle = Arc::new(DeviceHandle {
+                    read_tx,
+                    write_tx,
+                    metrics: self.metrics.clone(),
+                });
+                entry.insert(handle.clone());
+
+                let host = host.to_string();
+                let join = tokio::spawn(run_device_task(
+                    host, port, unit_id, read_rx, write_rx,
+                ));
+                self.task_handles.lock().unwrap().push(join);
+                handle
+            }
         }
-
-        let (tx, rx) = mpsc::unbounded_channel::<DeviceRequest>();
-        let handle = Arc::new(DeviceHandle { tx });
-        self.devices.insert(key, handle.clone());
-
-        let host = host.to_string();
-        let join = tokio::spawn(run_device_task(host, port, unit_id, rx));
-        self.task_handles.lock().unwrap().push(join);
-
-        handle
     }
 }
 
@@ -130,8 +214,10 @@ async fn run_device_task(
     host: String,
     port: u16,
     unit_id: u8,
-    mut rx: mpsc::UnboundedReceiver<DeviceRequest>,
+    mut read_rx: mpsc::Receiver<ReadRequest>,
+    mut write_rx: mpsc::Receiver<WriteRequest>,
 ) {
+    let mut pending_reads = VecDeque::new();
     // Resolve hostname → SocketAddr (supports both IP literals and DNS names).
     // On failure, report the error to all pending callers and exit the task.
     let target = format!("{}:{}", host, port);
@@ -141,7 +227,7 @@ async fn run_device_task(
                 Some(addr) => addr,
                 None => {
                     tracing::error!("Modbus: hostname '{}' resolved to no addresses", target);
-                    while let Some(req) = rx.recv().await {
+                    while let Some(req) = receive_request(&mut read_rx, &mut write_rx, &mut pending_reads).await {
                         send_error(req, format!("hostname '{}' resolved to no addresses", host));
                     }
                     return;
@@ -149,7 +235,7 @@ async fn run_device_task(
             },
             Err(e) => {
                 tracing::error!("Modbus: failed to resolve hostname '{}': {}", target, e);
-                while let Some(req) = rx.recv().await {
+                while let Some(req) = receive_request(&mut read_rx, &mut write_rx, &mut pending_reads).await {
                     send_error(req, format!("DNS resolution failed for '{}': {}", host, e));
                 }
                 return;
@@ -179,7 +265,7 @@ async fn run_device_task(
                     let retry_at = tokio::time::Instant::now() + Duration::from_secs(2);
                     loop {
                         tokio::select! {
-                            req = rx.recv() => match req {
+                            req = receive_request(&mut read_rx, &mut write_rx, &mut pending_reads) => match req {
                                 Some(r) => send_error(r, format!("Connection failed: {}", e)),
                                 None => return, // pool dropped
                             },
@@ -197,7 +283,7 @@ async fn run_device_task(
                     let retry_at = tokio::time::Instant::now() + Duration::from_secs(2);
                     loop {
                         tokio::select! {
-                            req = rx.recv() => match req {
+                            req = receive_request(&mut read_rx, &mut write_rx, &mut pending_reads) => match req {
                                 Some(r) => send_error(r, "Connection timed out".to_string()),
                                 None => return, // pool dropped
                             },
@@ -210,13 +296,16 @@ async fn run_device_task(
 
         // Serve requests until the connection breaks
         loop {
-            let req = match rx.recv().await {
+            let req = match receive_request(&mut read_rx, &mut write_rx, &mut pending_reads).await {
                 Some(r) => r,
                 None => return, // pool dropped
             };
 
-            let success = handle_request(&mut ctx, req).await;
+            let success = handle_request(&mut ctx, req, &mut read_rx, &mut pending_reads).await;
             if !success {
+                while let Some(req) = pending_reads.pop_front() {
+                    send_error(DeviceRequest::Read(req), "connection lost".to_string());
+                }
                 tracing::warn!(
                     "Modbus connection to {}:{} lost, reconnecting...",
                     host,
@@ -228,40 +317,82 @@ async fn run_device_task(
     }
 }
 
+async fn receive_request(
+    read_rx: &mut mpsc::Receiver<ReadRequest>,
+    write_rx: &mut mpsc::Receiver<WriteRequest>,
+    pending_reads: &mut VecDeque<ReadRequest>,
+) -> Option<DeviceRequest> {
+    if let Ok(request) = write_rx.try_recv() {
+        let mut request = DeviceRequest::Write(request);
+        request.mark_dequeued();
+        return Some(request);
+    }
+    if let Some(request) = pending_reads.pop_front() {
+        let mut request = DeviceRequest::Read(request);
+        request.mark_dequeued();
+        return Some(request);
+    }
+
+    let mut request = tokio::select! {
+        biased;
+        request = write_rx.recv(), if !write_rx.is_closed() => request.map(DeviceRequest::Write),
+        request = read_rx.recv(), if !read_rx.is_closed() => request.map(DeviceRequest::Read),
+        else => None,
+    }?;
+    request.mark_dequeued();
+    Some(request)
+}
+
 /// Execute one device request.  Returns `true` on success, `false` if the
 /// connection should be dropped and re-established.
-async fn handle_request(ctx: &mut tokio_modbus::client::Context, req: DeviceRequest) -> bool {
+async fn handle_request(
+    ctx: &mut tokio_modbus::client::Context,
+    req: DeviceRequest,
+    read_rx: &mut mpsc::Receiver<ReadRequest>,
+    pending_reads: &mut VecDeque<ReadRequest>,
+) -> bool {
     match req {
-        DeviceRequest::Read {
-            register,
-            register_type,
-            word_count,
-            respond,
-        } => {
+        DeviceRequest::Read(request) => {
+            tokio::task::yield_now().await;
+            let mut requests = vec![request];
+            while let Ok(queued) = read_rx.try_recv() {
+                if queued.register == requests[0].register
+                    && queued.register_type == requests[0].register_type
+                    && queued.word_count == requests[0].word_count
+                {
+                    let mut queued = queued;
+                    queued._queue_ticket.mark_dequeued();
+                    requests.push(queued);
+                } else {
+                    pending_reads.push_back(queued);
+                }
+            }
             let result = tokio::time::timeout(
                 Duration::from_secs(1),
-                execute_read(ctx, register, &register_type, word_count),
+                execute_read(
+                    ctx,
+                    requests[0].register,
+                    &requests[0].register_type,
+                    requests[0].word_count,
+                ),
             )
             .await
             .unwrap_or_else(|_| Err("read timed out".to_string()));
             let ok = result.is_ok();
-            let _ = respond.send(result);
+            for request in requests {
+                let _ = request.respond.send(result.clone());
+            }
             ok
         }
-        DeviceRequest::Write {
-            register,
-            register_type,
-            values,
-            respond,
-        } => {
+        DeviceRequest::Write(request) => {
             let result = tokio::time::timeout(
                 Duration::from_secs(1),
-                execute_write(ctx, register, &register_type, &values),
+                execute_write(ctx, request.register, &request.register_type, &request.values),
             )
             .await
             .unwrap_or_else(|_| Err("write timed out".to_string()));
             let ok = result.is_ok();
-            let _ = respond.send(result);
+            let _ = request.respond.send(result);
             ok
         }
     }
@@ -341,11 +472,11 @@ async fn execute_write(
 
 fn send_error(req: DeviceRequest, msg: String) {
     match req {
-        DeviceRequest::Read { respond, .. } => {
-            let _ = respond.send(Err(msg));
+        DeviceRequest::Read(request) => {
+            let _ = request.respond.send(Err(msg));
         }
-        DeviceRequest::Write { respond, .. } => {
-            let _ = respond.send(Err(msg));
+        DeviceRequest::Write(request) => {
+            let _ = request.respond.send(Err(msg));
         }
     }
 }
@@ -374,7 +505,7 @@ pub fn modbus_stream(
 }
 
 async fn run_modbus_poll(
-    m: ModbusTCPConfig,
+    m: ModbusTcpConfig,
     config: Arc<WidgetConfig>,
     pool: Arc<ModbusPool>,
     tx: tokio::sync::mpsc::UnboundedSender<ChannelEvent>,
@@ -499,7 +630,7 @@ fn decode_words(words: &[u16], word_count: u8) -> f64 {
 
 pub fn build_channel_value(
     physical: f64,
-    m: &ModbusTCPConfig,
+    m: &ModbusTcpConfig,
     config: &WidgetConfig,
 ) -> ChannelValue {
     let meta_display = config.metadata.as_ref().and_then(|md| md.display.as_ref());
@@ -574,7 +705,7 @@ pub fn build_channel_value(
 
 /// Write a physical value back to a Modbus register, reversing the scale/offset.
 pub async fn modbus_write(
-    m: &ModbusTCPConfig,
+    m: &ModbusTcpConfig,
     physical_value: f64,
     pool: &ModbusPool,
 ) -> Result<(), String> {

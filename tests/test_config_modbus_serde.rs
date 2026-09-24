@@ -1,5 +1,8 @@
 mod test_config_modbus_serde {
-    use mycela::config::{ModbusTCPConfig, ModbusRegisterType, ScreenConfig};
+    use mycela::config::{
+        ModbusRegisterType, ModbusTcpConfig, ScreenConfig, WidgetServerEpicsPvxsConfig,
+        WidgetServerProtocolConfig,
+    };
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -29,14 +32,14 @@ mod test_config_modbus_serde {
             "register_type": "holding_register",
             "poll_interval_ms": 1000
         }"#;
-        let m: ModbusTCPConfig = serde_json::from_str(json).unwrap();
+        let m: ModbusTcpConfig = serde_json::from_str(json).unwrap();
         assert_eq!(m.min_poll_interval_ms, 1000);
     }
 
     #[test]
     fn test_modbus_config_missing_fields_use_correct_defaults() {
         let json = r#"{"host":"127.0.0.1","register":100,"register_type":"coil"}"#;
-        let m: ModbusTCPConfig = serde_json::from_str(json).unwrap();
+        let m: ModbusTcpConfig = serde_json::from_str(json).unwrap();
         assert_eq!(m.port, 502);
         assert_eq!(m.unit_id, 1);
         assert_eq!(m.min_poll_interval_ms, 500);
@@ -61,6 +64,19 @@ mod test_config_modbus_serde {
     }
 
     #[test]
+    fn test_widget_server_epics_pvxs_tag_and_legacy_alias() {
+        let config = WidgetServerProtocolConfig::EpicsPvxs(WidgetServerEpicsPvxsConfig {
+            pv_name: "test:pv".to_string(),
+        });
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(json.contains(r#""type":"epics-pvxs""#));
+
+        let legacy: WidgetServerProtocolConfig =
+            serde_json::from_str(r#"{"type":"epics-pva","pv_name":"test:pv"}"#).unwrap();
+        assert!(matches!(legacy, WidgetServerProtocolConfig::EpicsPvxs(_)));
+    }
+
+    #[test]
     fn test_screen_config_load_returns_error_for_missing_file() {
         assert!(ScreenConfig::load("/nonexistent/path/config.json").is_err());
     }
@@ -73,7 +89,7 @@ mod test_config_modbus_serde {
             "description": "A test screen",
             "widgets": [{
                 "id": "w1", "type": "text_update", "label": "Value",
-                "protocol": {"type": "epics-pva", "pv_name": "test:double"}
+                "protocol": {"type": "epics-pvxs", "pv_name": "test:double"}
             }]
         }"#;
         let sc: ScreenConfig = serde_json::from_str(json).unwrap();
@@ -88,9 +104,9 @@ mod test_config_modbus_serde {
             "id": "s", "title": "T", "description": "D",
             "widgets": [
                 {"id": "dup", "type": "text_update", "label": "A",
-                 "protocol": {"type": "epics-pva", "pv_name": "a:pv"}},
+                 "protocol": {"type": "epics-pvxs", "pv_name": "a:pv"}},
                 {"id": "dup", "type": "text_update", "label": "B",
-                 "protocol": {"type": "epics-pva", "pv_name": "b:pv"}}
+                 "protocol": {"type": "epics-pvxs", "pv_name": "b:pv"}}
             ]
         }"#;
         let sc: ScreenConfig = serde_json::from_str(json).unwrap();
@@ -119,7 +135,7 @@ mod test_config_modbus_serde {
                     "id": "widget1",
                     "type": "text_update",
                     "data_type": "double",
-                    "protocol": { "type": "epics-pva", "pv_name": "demo:test:pv" }
+                    "protocol": { "type": "epics-pvxs", "pv_name": "demo:test:pv" }
                 }
             ]
         }"#;
@@ -140,7 +156,7 @@ mod test_config_modbus_serde {
                     "type": "invalid_type",
                     "label": "Test Widget",
                     "data_type": "double",
-                    "protocol": { "type": "epics-pva", "pv_name": "demo:test:pv" }
+                    "protocol": { "type": "epics-pvxs", "pv_name": "demo:test:pv" }
                 }
             ]
         }"#;
@@ -161,14 +177,14 @@ mod test_config_modbus_serde {
                     "type": "text_update",
                     "label": "Test Widget 1",
                     "data_type": "double",
-                    "protocol": { "type": "epics-pva", "pv_name": "demo:test:pv1" }
+                    "protocol": { "type": "epics-pvxs", "pv_name": "demo:test:pv1" }
                 },
                 {
                     "id": "widget1",
                     "type": "text_entry",
                     "label": "Test Widget 2",
                     "data_type": "double",
-                    "protocol": { "type": "epics-pva", "pv_name": "demo:test:pv2" }
+                    "protocol": { "type": "epics-pvxs", "pv_name": "demo:test:pv2" }
                 }
             ]
         }"#;

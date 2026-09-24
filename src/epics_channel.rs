@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use pvxs_sys::{Context, MonitorEvent, Value};
+use pvxs::{Context, MonitorEvent, Value};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
@@ -10,7 +10,7 @@ use crate::config::{ProtocolConfig, WidgetConfig};
 
 // ─── Public entry point ───────────────────────────────────────────────────────
 
-/// Create an async stream of `ChannelEvent`s backed by a pvxs-sys EPICS monitor.
+/// Create an async stream of `ChannelEvent`s backed by a pvxs EPICS monitor.
 ///
 /// * For regular (single-PV) widgets: spawns one blocking thread that loops on
 ///   `monitor.pop()` and sends events through a channel.
@@ -23,7 +23,7 @@ pub fn epics_stream(
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ChannelEvent>();
 
     let is_multi_series = config
-        .epics_pva()
+        .epics_pvxs()
         .map(|e| {
             config.chart_type.as_deref().unwrap_or("line") == "line"
                 && e.pv_names.as_ref().map_or(false, |v| !v.is_empty())
@@ -32,7 +32,7 @@ pub fn epics_stream(
 
     if is_multi_series {
         let all_pvs = config
-            .epics_pva()
+            .epics_pvxs()
             .map(|e| e.series_pvs())
             .unwrap_or_default();
         tokio::task::spawn_blocking(move || run_multi_monitor(all_pvs, config, epics_ctx, tx));
@@ -51,10 +51,10 @@ fn run_single_monitor(
     tx: UnboundedSender<ChannelEvent>,
 ) {
     let pv_name = match config.protocol.as_ref() {
-        Some(ProtocolConfig::EpicsPva(e)) => e.pv_name.clone(),
+        Some(ProtocolConfig::EpicsPvxs(e)) => e.pv_name.clone(),
         _ => {
             let _ = tx.send(ChannelEvent::Error(
-                "epics_stream: not an epics-pva widget".into(),
+                "epics_stream: not an epics-pvxs widget".into(),
             ));
             return;
         }
@@ -82,6 +82,10 @@ fn run_single_monitor(
     }
 
     loop {
+        if tx.is_closed() {
+            break;
+        }
+
         match monitor.pop() {
             Ok(Some(raw)) => {
                 let cv = channel_value_from_epics(&raw, &config);
@@ -158,6 +162,10 @@ fn run_multi_monitor(
                 }
 
                 loop {
+                    if tx.is_closed() {
+                        break;
+                    }
+
                     match monitor.pop() {
                         Ok(Some(raw)) => {
                             if let Ok(arr) = raw.get_field_double_array("value") {
@@ -228,7 +236,7 @@ fn run_multi_monitor(
 
 // ─── Value mapping ────────────────────────────────────────────────────────────
 
-/// Convert a `pvxs_sys::Value` into a protocol-neutral `ChannelValue`.
+/// Convert a `pvxs::Value` into a protocol-neutral `ChannelValue`.
 pub fn channel_value_from_epics(raw: &Value, config: &WidgetConfig) -> ChannelValue {
     // Widget-level metadata as fallback when EPICS has not yet delivered server metadata.
     let meta_display = config.metadata.as_ref().and_then(|m| m.display.as_ref());

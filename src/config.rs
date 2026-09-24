@@ -212,8 +212,9 @@ pub struct WidgetServerConfig {
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum WidgetServerProtocolConfig {
     ModbusTcp(WidgetServerModbusTcpConfig),
-    #[cfg(feature = "epics")]
-    EpicsPva(WidgetServerEpicsPvaConfig),
+    #[cfg(feature = "epics-pvxs")]
+    #[serde(alias = "epics-pva")]
+    EpicsPvxs(WidgetServerEpicsPvxsConfig),
 }
 
 #[cfg(feature = "modbus")]
@@ -222,11 +223,13 @@ pub struct WidgetServerModbusTcpConfig {
     pub register_type: ModbusRegisterType,
     #[serde(default = "default_word_count")]
     pub word_count: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scale: Option<f32>,
 }
 
-#[cfg(all(feature = "modbus", feature = "epics"))]
+#[cfg(all(feature = "modbus", feature = "epics-pvxs"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WidgetServerEpicsPvaConfig {
+pub struct WidgetServerEpicsPvxsConfig {
     pub pv_name: String,
 }
 
@@ -419,7 +422,7 @@ impl AppConfig {
                     let has_server_protocol = server.protocol.is_some();
                     if !is_local || !has_server_protocol {
                         return Err(ConfigError::ValidationError(format!(
-                            "Widget '{}' has server.proxy_register but no bridge protocol format. For local widgets, set server.protocol={{\"type\":\"modbus-tcp\",...}} or server.protocol={{\"type\":\"epics-pva\",...}}",
+                            "Widget '{}' has server.proxy_register but no bridge protocol format. For local widgets, set server.protocol={{\"type\":\"modbus-tcp\",...}} or server.protocol={{\"type\":\"epics-pvxs\",...}}",
                             widget.id
                         )));
                     }
@@ -464,7 +467,7 @@ pub struct ScreenConfig {
 /// Uses serde's internally-tagged enum so JSON looks like:
 /// ```json
 /// { "type": "local", "channel": "app:my:value", ... }
-/// { "type": "epics-pva", "pv_name": "demo:double", ... }
+/// { "type": "epics-pvxs", "pv_name": "demo:double", ... }
 /// { "type": "modbus-tcp", "host": "127.0.0.1", "register": 1000, ... }
 /// ```
 /// Adding a new protocol = one new enum variant + struct, no changes to WidgetConfig.
@@ -476,10 +479,14 @@ pub struct ScreenConfig {
 #[non_exhaustive]
 pub enum ProtocolConfig {
     Local(LocalConfig),
-    #[cfg(feature = "epics")]
-    EpicsPva(EpicsPvaConfig),
+    #[cfg(feature = "epics-pvxs")]
+    EpicsPvxs(EpicsPvxsConfig),
     #[cfg(feature = "modbus")]
-    ModbusTcp(ModbusTCPConfig),
+    ModbusTcp(ModbusTcpConfig),
+    #[cfg(feature = "ascii-tcp")]
+    AsciiTcp(AsciiTcpConfig),
+    #[cfg(feature = "ascii-serial")]
+    AsciiSerial(AsciiSerialConfig),
 }
 
 /// In-process local channel configuration.
@@ -495,10 +502,10 @@ pub struct LocalConfig {
     pub initial_value: Option<String>,
 }
 
-/// EPICS Process Variable Access channel configuration.
-#[cfg(feature = "epics")]
+/// EPICS Process Variable Access channel from PVXS.
+#[cfg(feature = "epics-pvxs")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EpicsPvaConfig {
+pub struct EpicsPvxsConfig {
     /// EPICS PV name (e.g. "demo:double")
     pub pv_name: String,
     /// Optional embedded PVXS server PV definition (creates the PV on start-up)
@@ -511,8 +518,8 @@ pub struct EpicsPvaConfig {
     pub pv_names: Option<Vec<String>>,
 }
 
-#[cfg(feature = "epics")]
-impl EpicsPvaConfig {
+#[cfg(feature = "epics-pvxs")]
+impl EpicsPvxsConfig {
     /// All PV names for this widget — primary first, then up to 5 extra series.
     /// The 6-series cap matches the server-side limit enforced in `setup_server_pvs`.
     pub fn series_pvs(&self) -> Vec<String> {
@@ -527,7 +534,7 @@ impl EpicsPvaConfig {
 /// Modbus TCP channel configuration.
 #[cfg(feature = "modbus")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModbusTCPConfig {
+pub struct ModbusTcpConfig {
     /// Modbus server hostname or IP address
     pub host: String,
     /// TCP port (default: 502)
@@ -558,6 +565,175 @@ pub struct ModbusTCPConfig {
     pub bit_index: Option<u8>,
 }
 
+/// ASCII line protocol over TCP.
+#[cfg(feature = "ascii-tcp")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AsciiTcpConfig {
+    /// Target host name or IP address.
+    pub host: String,
+    /// TCP port for ASCII line protocol endpoint.
+    pub port: u16,
+    /// Poll request line sent on each read cycle.
+    ///
+    /// Omit for write-only endpoints: no polling happens and the widget is
+    /// reported as connected so it renders enabled.
+    #[serde(default)]
+    pub read_command: Option<String>,
+    /// Optional printf-style template describing the read response layout.
+    ///
+    /// The first conversion specifier (`%d`, `%f`, `%x`, `%s`) supplies the
+    /// widget value, e.g. `"ARM=%d"` extracts `1` from `ARM=1`.
+    /// When absent, the whole response line is parsed per `response_mode`.
+    #[serde(default)]
+    pub read_response: Option<String>,
+    /// Optional command template used for writes.
+    ///
+    /// When present, `{value}` is replaced with the requested value.
+    /// When absent, the raw value is sent as-is.
+    #[serde(default)]
+    pub write_command: Option<String>,
+    /// Whether the endpoint acknowledges writes with a response line.
+    ///
+    /// Set to `false` for fire-and-forget commands, otherwise the write waits
+    /// for a reply that never arrives and fails with an I/O timeout.
+    #[serde(default = "default_write_expects_response")]
+    pub write_expects_response: bool,
+    /// Line terminator appended to outbound requests.
+    #[serde(default)]
+    pub line_ending: AsciiLineEnding,
+    /// Minimum poll interval in milliseconds.
+    #[serde(default = "default_min_poll_interval_ms")]
+    pub min_poll_interval_ms: u64,
+    /// Timeout in milliseconds for establishing the TCP connection.
+    #[serde(default = "default_connect_timeout_ms")]
+    pub connect_timeout_ms: u64,
+    /// Timeout in milliseconds for a single request/response exchange.
+    ///
+    /// Raise this when the endpoint is slow to answer, or when the client runs
+    /// on a virtual machine where scheduling delays inflate round-trip times.
+    #[serde(default = "default_io_timeout_ms")]
+    pub io_timeout_ms: u64,
+    /// Scale factor applied to parsed numeric values.
+    #[serde(default = "default_scale")]
+    pub scale: f64,
+    /// Offset applied after scaling.
+    #[serde(default = "default_offset")]
+    pub offset: f64,
+    /// Response parse strategy.
+    #[serde(default)]
+    pub response_mode: AsciiResponseMode,
+}
+
+/// ASCII line protocol over serial.
+#[cfg(feature = "ascii-serial")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AsciiSerialConfig {
+    /// Serial device path (e.g. COM3, /dev/ttyUSB0).
+    pub port_path: String,
+    /// Serial baud rate.
+    #[serde(default = "default_serial_baud_rate")]
+    pub baud_rate: u32,
+    /// Data bits setting.
+    #[serde(default)]
+    pub data_bits: SerialDataBits,
+    /// Parity setting.
+    #[serde(default)]
+    pub parity: SerialParity,
+    /// Stop bits setting.
+    #[serde(default)]
+    pub stop_bits: SerialStopBits,
+    /// Poll request line sent on each read cycle.
+    pub read_command: String,
+    /// Optional command template used for writes.
+    ///
+    /// When present, `{value}` is replaced with the requested value.
+    /// When absent, the raw value is sent as-is.
+    #[serde(default)]
+    pub write_command: Option<String>,
+    /// Line terminator appended to outbound requests.
+    #[serde(default)]
+    pub line_ending: AsciiLineEnding,
+    /// Minimum poll interval in milliseconds.
+    #[serde(default = "default_min_poll_interval_ms")]
+    pub min_poll_interval_ms: u64,
+    /// Scale factor applied to parsed numeric values.
+    #[serde(default = "default_scale")]
+    pub scale: f64,
+    /// Offset applied after scaling.
+    #[serde(default = "default_offset")]
+    pub offset: f64,
+    /// Response parse strategy.
+    #[serde(default)]
+    pub response_mode: AsciiResponseMode,
+}
+
+#[cfg(any(feature = "ascii-tcp", feature = "ascii-serial"))]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum AsciiLineEnding {
+    #[default]
+    Lf,
+    CrLf,
+    Cr,
+}
+
+#[cfg(any(feature = "ascii-tcp", feature = "ascii-serial"))]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum AsciiResponseMode {
+    #[default]
+    Number,
+    Bool,
+    Text,
+    /// Treats receipt of any accepted response line as a pulse: the value is
+    /// always `1` when a line arrives — content beyond matching `read_response`
+    /// doesn't matter.
+    ///
+    /// Intended for heartbeat/keep-alive lines pushed unsolicited by the device
+    /// (e.g. `ALIVE`). Set `read_response` to the exact literal to watch for
+    /// (e.g. `"ALIVE"`) so other unsolicited lines (errors, other widgets'
+    /// replies) are silently discarded instead of producing a pulse. Pair with
+    /// an empty/no-op `read_command` so the device isn't asked to reply; the
+    /// poll just waits for the next broadcast, and a stalled heartbeat surfaces
+    /// as the normal `Disconnected` state once `io_timeout_ms` elapses without
+    /// a match.
+    ///
+    /// This mode only reports presence — deriving stateful behavior such as a
+    /// blinking LED from repeated pulses is left to application logic (e.g. via
+    /// `ChannelContext::subscribe_widget_value_updates`).
+    Presence,
+}
+
+#[cfg(feature = "ascii-serial")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum SerialDataBits {
+    Five,
+    Six,
+    Seven,
+    #[default]
+    Eight,
+}
+
+#[cfg(feature = "ascii-serial")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum SerialParity {
+    #[default]
+    None,
+    Odd,
+    Even,
+}
+
+#[cfg(feature = "ascii-serial")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum SerialStopBits {
+    #[default]
+    One,
+    Two,
+}
+
 #[cfg(feature = "modbus")]
 fn default_modbus_port() -> u16 {
     502
@@ -566,21 +742,38 @@ fn default_modbus_port() -> u16 {
 fn default_unit_id() -> u8 {
     1
 }
-#[cfg(feature = "modbus")]
+#[cfg(any(feature = "modbus", feature = "ascii-tcp", feature = "ascii-serial"))]
 fn default_min_poll_interval_ms() -> u64 {
     500
 }
-#[cfg(feature = "modbus")]
+#[cfg(any(feature = "modbus", feature = "ascii-tcp", feature = "ascii-serial"))]
 fn default_scale() -> f64 {
     1.0
 }
-#[cfg(feature = "modbus")]
+#[cfg(any(feature = "modbus", feature = "ascii-tcp", feature = "ascii-serial"))]
 fn default_offset() -> f64 {
     0.0
+}
+#[cfg(feature = "ascii-tcp")]
+fn default_write_expects_response() -> bool {
+    true
+}
+#[cfg(feature = "ascii-tcp")]
+fn default_connect_timeout_ms() -> u64 {
+    2_000
+}
+#[cfg(feature = "ascii-tcp")]
+fn default_io_timeout_ms() -> u64 {
+    2_000
 }
 #[cfg(feature = "modbus")]
 fn default_word_count() -> u8 {
     1
+}
+
+#[cfg(feature = "ascii-serial")]
+fn default_serial_baud_rate() -> u32 {
+    9600
 }
 
 /// Modbus register / coil type.
@@ -661,7 +854,7 @@ pub struct WidgetConfig {
     pub size: Option<WidgetSize>,
     /// Widget-level default metadata (display limits, units, precision, alarm bands).
     /// Used as fallback when the protocol backend has not yet delivered its own metadata
-    /// (e.g. EPICS PVA before the first monitor update) and as the primary metadata
+    /// (e.g. PVXS before the first monitor update) and as the primary metadata
     /// source for protocols that carry no metadata themselves (e.g. Modbus TCP).
     #[serde(default)]
     pub metadata: Option<PvMetadata>,
@@ -674,6 +867,9 @@ pub struct WidgetConfig {
     /// Set `true` when the register is a "closed" flag (1 = closed, 0 = open).
     #[serde(default)]
     pub invert: Option<bool>,
+    /// Show the "ON"/"OFF" text under an `Led` widget's indicator. Defaults to `true`.
+    #[serde(default)]
+    pub show_status_text: Option<bool>,
     /// Position of the label and status text relative to the polygon SVG.
     /// Accepted values: `"top"`, `"bottom"`, `"left"` (default), `"right"`.
     #[serde(default)]
@@ -706,11 +902,19 @@ impl WidgetConfig {
     pub fn channel_address(&self) -> String {
         match &self.protocol {
             Some(ProtocolConfig::Local(l)) => format!("local://{}", l.channel),
-            #[cfg(feature = "epics")]
-            Some(ProtocolConfig::EpicsPva(e)) => e.pv_name.clone(),
+            #[cfg(feature = "epics-pvxs")]
+            Some(ProtocolConfig::EpicsPvxs(e)) => e.pv_name.clone(),
             #[cfg(feature = "modbus")]
             Some(ProtocolConfig::ModbusTcp(m)) => {
                 format!("modbus-tcp://{}:{}/reg{}", m.host, m.port, m.register)
+            }
+            #[cfg(feature = "ascii-tcp")]
+            Some(ProtocolConfig::AsciiTcp(a)) => {
+                format!("ascii-tcp://{}:{}", a.host, a.port)
+            }
+            #[cfg(feature = "ascii-serial")]
+            Some(ProtocolConfig::AsciiSerial(s)) => {
+                format!("ascii-serial://{}@{}", s.port_path, s.baud_rate)
             }
             _ => String::new(),
         }
@@ -724,27 +928,45 @@ impl WidgetConfig {
         }
     }
 
-    /// Returns the `EpicsPvaConfig` if this widget uses the `epics-pva` protocol.
-    #[cfg(feature = "epics")]
-    pub fn epics_pva(&self) -> Option<&EpicsPvaConfig> {
+    /// Returns the `EpicsPvxsConfig` if this widget uses the `epics-pvxs` protocol.
+    #[cfg(feature = "epics-pvxs")]
+    pub fn epics_pvxs(&self) -> Option<&EpicsPvxsConfig> {
         match &self.protocol {
-            Some(ProtocolConfig::EpicsPva(e)) => Some(e),
+            Some(ProtocolConfig::EpicsPvxs(e)) => Some(e),
             _ => None,
         }
     }
 
-    /// Returns the `ModbusTCPConfig` if this widget uses the `modbus-tcp` protocol.
+    /// Returns the `ModbusTcpConfig` if this widget uses the `modbus-tcp` protocol.
     #[cfg(feature = "modbus")]
-    pub fn modbus_tcp(&self) -> Option<&ModbusTCPConfig> {
+    pub fn modbus_tcp(&self) -> Option<&ModbusTcpConfig> {
         match &self.protocol {
             Some(ProtocolConfig::ModbusTcp(m)) => Some(m),
             _ => None,
         }
     }
+
+    /// Returns the `AsciiTcpConfig` if this widget uses the `ascii-tcp` protocol.
+    #[cfg(feature = "ascii-tcp")]
+    pub fn ascii_tcp(&self) -> Option<&AsciiTcpConfig> {
+        match &self.protocol {
+            Some(ProtocolConfig::AsciiTcp(a)) => Some(a),
+            _ => None,
+        }
+    }
+
+    /// Returns the `AsciiSerialConfig` if this widget uses the `ascii-serial` protocol.
+    #[cfg(feature = "ascii-serial")]
+    pub fn ascii_serial(&self) -> Option<&AsciiSerialConfig> {
+        match &self.protocol {
+            Some(ProtocolConfig::AsciiSerial(s)) => Some(s),
+            _ => None,
+        }
+    }
 }
 
-/// Server configuration for providing an EPICS PV (lives inside `EpicsPvaConfig.server`).
-#[cfg(feature = "epics")]
+/// Server configuration for providing an EPICS PV (lives inside `EpicsPvxsConfig.server`).
+#[cfg(feature = "epics-pvxs")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
     /// Alarm severity for this PV's initial state. Accepted values: `NONE`, `MINOR`, `MAJOR`, `INVALID`.
@@ -987,7 +1209,7 @@ impl ScreenConfig {
             "title" => "The config root must have a 'title' field (string).".to_string(),
             "description" => "The config root must have a 'description' field (string).".to_string(),
             "widgets" => "The config root must have a 'widgets' array containing widget configurations.".to_string(),
-            "pv_name" => "Inside an 'epics-pva' protocol block, 'pv_name' must be set to the EPICS PV name.".to_string(),
+            "pv_name" => "Inside an 'epics-pvxs' protocol block, 'pv_name' must be set to the EPICS PV name.".to_string(),
             "host" => "Inside a 'modbus' protocol block, 'host' must be set to the device IP/hostname.".to_string(),
             "register" => "Inside a 'modbus' protocol block, 'register' must be the register address (u16).".to_string(),
             "register_type" => "Inside a 'modbus' protocol block, 'register_type' must be one of: holding_register, input_register, coil, discrete_input.".to_string(),

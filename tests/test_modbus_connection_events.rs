@@ -2,6 +2,7 @@
 
 mod test_modbus_connection_events {
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -9,7 +10,7 @@ mod test_modbus_connection_events {
     use tokio_stream::StreamExt;
 
     use mycela::channel::ChannelEvent;
-    use mycela::config::{ModbusTCPConfig, ModbusRegisterType, ProtocolConfig, WidgetConfig, WidgetType};
+    use mycela::config::{ModbusTcpConfig, ModbusRegisterType, ProtocolConfig, WidgetConfig, WidgetType};
     use mycela::modbus_client::{modbus_stream, ModbusPool};
 
     // ── in-process mock Modbus TCP server ─────────────────────────────────────
@@ -23,7 +24,7 @@ mod test_modbus_connection_events {
         let handle = tokio::spawn(async move {
             loop {
                 if let Ok((socket, _)) = listener.accept().await {
-                    tokio::spawn(serve_modbus(socket, None));
+                    tokio::spawn(serve_modbus(socket, None, None));
                 }
             }
         });
@@ -38,7 +39,7 @@ mod test_modbus_connection_events {
         let port = listener.local_addr().unwrap().port();
         tokio::spawn(async move {
             if let Ok((socket, _)) = listener.accept().await {
-                serve_modbus(socket, Some(max_requests)).await;
+                serve_modbus(socket, Some(max_requests), None).await;
             }
             // listener dropped here — subsequent connect attempts get "connection refused"
         });
@@ -47,7 +48,26 @@ mod test_modbus_connection_events {
 
     /// Respond to FC=0x03 (Read Holding Registers) requests with value 1234.
     /// If `max` is `Some(n)`, exits after serving `n` requests (dropping the socket).
-    async fn serve_modbus(mut socket: TcpStream, max: Option<usize>) {
+    async fn start_counting_mock_server() -> (u16, Arc<AtomicUsize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let request_count = Arc::new(AtomicUsize::new(0));
+        let server_count = request_count.clone();
+        tokio::spawn(async move {
+            loop {
+                if let Ok((socket, _)) = listener.accept().await {
+                    tokio::spawn(serve_modbus(socket, None, Some(server_count.clone())));
+                }
+            }
+        });
+        (port, request_count)
+    }
+
+    async fn serve_modbus(
+        mut socket: TcpStream,
+        max: Option<usize>,
+        request_count: Option<Arc<AtomicUsize>>,
+    ) {
         let mut buf = vec![0u8; 256];
         let mut served = 0usize;
         loop {
@@ -60,6 +80,9 @@ mod test_modbus_connection_events {
             };
             if n < 12 {
                 continue;
+            }
+            if let Some(request_count) = &request_count {
+                request_count.fetch_add(1, Ordering::Relaxed);
             }
             let txn_id  = u16::from_be_bytes([buf[0], buf[1]]);
             let unit_id = buf[6];
@@ -99,7 +122,7 @@ mod test_modbus_connection_events {
             id: "mb-test".to_string(),
             widget_type: WidgetType::TextUpdate,
             label: "test".to_string(),
-            protocol: Some(ProtocolConfig::ModbusTcp(ModbusTCPConfig {
+            protocol: Some(ProtocolConfig::ModbusTcp(ModbusTcpConfig {
                 host: "127.0.0.1".to_string(),
                 port,
                 unit_id: 1,
@@ -132,6 +155,40 @@ mod test_modbus_connection_events {
         let h1 = pool.get_or_create("127.0.0.1", 9901, 1);
         let h2 = pool.get_or_create("127.0.0.1", 9901, 1);
         assert!(Arc::ptr_eq(&h1, &h2), "same key should return the same Arc");
+    }
+
+    #[tokio::test]
+    async fn pool_get_or_create_deduplicates_concurrent_calls() {
+        let pool = ModbusPool::new();
+        let mut tasks = Vec::new();
+        for _ in 0..32 {
+            let pool = pool.clone();
+            tasks.push(tokio::spawn(async move {
+                pool.get_or_create("127.0.0.1", 9910, 1)
+            }));
+        }
+
+        let first = tasks.remove(0).await.unwrap();
+        for task in tasks {
+            assert!(Arc::ptr_eq(&first, &task.await.unwrap()));
+        }
+    }
+
+    #[tokio::test]
+    async fn concurrent_identical_reads_are_coalesced() {
+        let (port, request_count) = start_counting_mock_server().await;
+        let pool = ModbusPool::new();
+        let handle = pool.get_or_create("127.0.0.1", port, 1);
+
+        let (first, second) = tokio::join!(
+            handle.read(1000, ModbusRegisterType::HoldingRegister, 1),
+            handle.read(1000, ModbusRegisterType::HoldingRegister, 1),
+        );
+
+        assert_eq!(first.unwrap(), vec![1234]);
+        assert_eq!(second.unwrap(), vec![1234]);
+        assert_eq!(request_count.load(Ordering::Relaxed), 1);
+        assert_eq!(pool.metrics().snapshot().modbus_queue_depth, 0);
     }
 
     #[tokio::test]
