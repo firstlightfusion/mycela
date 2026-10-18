@@ -63,12 +63,12 @@ pub(super) fn build_tooltip(config: &crate::config::WidgetConfig, cv: &crate::ch
     }
     t.push_str(&format!("Precision: {}\n", cv.precision));
 
-    if cv.control_low != std::f64::MIN || cv.control_high != std::f64::MAX {
+    if cv.control_low != f64::MIN || cv.control_high != f64::MAX {
         t.push_str(&format!("Control Low: {}\n", cv.control_low));
         t.push_str(&format!("Control High: {}\n", cv.control_high));
     }
 
-    if cv.display_low != std::f64::MIN || cv.display_high != std::f64::MAX {
+    if cv.display_low != f64::MIN || cv.display_high != f64::MAX {
         t.push_str(&format!("Display Low: {}\n", cv.display_low));
         t.push_str(&format!("Display High: {}\n", cv.display_high));
     }
@@ -76,7 +76,7 @@ pub(super) fn build_tooltip(config: &crate::config::WidgetConfig, cv: &crate::ch
         t.push_str(&format!("Control Low: {}\n", cv.control_low));
         t.push_str(&format!("Control High: {}\n", cv.control_high));
     }
-    if cv.low_alarm_limit != std::f64::MIN || cv.high_alarm_limit != std::f64::MAX {
+    if cv.low_alarm_limit != f64::MIN || cv.high_alarm_limit != f64::MAX {
         t.push_str(&format!("Low Alarm Limit: {}\n", cv.low_alarm_limit));
         t.push_str(&format!("Low Warning Limit: {}\n", cv.low_warn_limit));
         t.push_str(&format!("High Warning Limit: {}\n", cv.high_warn_limit));

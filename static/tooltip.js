@@ -295,4 +295,11 @@
     } else {
         initTooltips();
     }
+
+    // Backs the "Hide Info" button: `body.info-off` hides every `.widget-info-btn`.
+    window.toggleInfo = function () {
+        var hidden = document.body.classList.toggle('info-off');
+        var label = document.getElementById('info-lbl');
+        if (label) label.textContent = hidden ? 'Show Info' : 'Hide Info';
+    };
 })();

@@ -2,7 +2,7 @@
 
 mod test_ascii_tcp_server {
     use mycela;
-    use mycela::config::AsciiLineEnding;
+    use ascii_tcp::LineEnding;
     use std::net::SocketAddr;
     use std::time::Duration;
 
@@ -23,7 +23,7 @@ mod test_ascii_tcp_server {
 
         let handle = mycela::ascii_tcp_server::start_server_with_line_ending(
             SocketAddr::from(([127, 0, 0, 1], port)),
-            AsciiLineEnding::CrLf,
+            LineEnding::CrLf,
             |request, _peer| async move {
                 assert_eq!(request, "READ VALUE");
                 Ok("42.5".to_string())
@@ -35,7 +35,7 @@ mod test_ascii_tcp_server {
             port,
             connect_timeout: Duration::from_millis(200),
             io_timeout: Duration::from_millis(200),
-            line_ending: ascii_tcp::LineEnding::CrLf,
+            line_ending: LineEnding::CrLf,
         };
 
         let deadline = std::time::Instant::now() + Duration::from_secs(3);

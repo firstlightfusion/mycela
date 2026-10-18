@@ -269,6 +269,9 @@ fn ensure_shared_widget_monitor(
     rx
 }
 
+/// Starts all shared widget monitors for the given app state. 
+/// This ensures that each widget has a single monitor running, even if no browser is connected. 
+/// SSE streams will reuse these monitors instead of spawning duplicate pollers.
 pub fn start_shared_widget_monitors(state: &AppState) {
     for widget in state
         .config

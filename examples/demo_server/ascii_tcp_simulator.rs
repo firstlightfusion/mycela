@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use tokio::task::JoinHandle;
 
-use mycela::config::AsciiLineEnding;
+use ascii_tcp::LineEnding;
 
 struct SimulatorState {
     setpoint_bits: AtomicU64,
@@ -18,7 +18,7 @@ pub fn start_ascii_tcp_simulator(port: u16) -> JoinHandle<()> {
 
     mycela::ascii_tcp_server::start_server_with_line_ending(
         ([0, 0, 0, 0], port).into(),
-        AsciiLineEnding::CrLf,
+        LineEnding::CrLf,
         move |request, _peer| {
             let state = Arc::clone(&state);
             async move { handle_request(&state, request.trim()) }

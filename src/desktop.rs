@@ -444,11 +444,18 @@ fn spawn_ipc_backend(
                     ),
                 }
             } else {
-                runtime.block_on(ipc_dispatch::dispatch_request(
-                    &state,
-                    backend_request.request,
-                    Some(&session_token),
-                ))
+                // Dispatch concurrently: a slow request (e.g. an ASCII-TCP write queued behind a
+                // stalled endpoint) must not hold up every other IPC request on this loop.
+                let BackendRequest { request, response_tx } = backend_request;
+                let state = state.clone();
+                let session_token = session_token.clone();
+                runtime.spawn(async move {
+                    let response =
+                        ipc_dispatch::dispatch_request(&state, request, Some(&session_token))
+                            .await;
+                    let _ = response_tx.send(response);
+                });
+                continue;
             };
 
             let _ = backend_request.response_tx.send(response);

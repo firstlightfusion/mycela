@@ -124,8 +124,6 @@ fn state_label(cls: &str) -> &'static str {
     }
 }
 
-// ─── Render functions (pub so pid_screen.rs can call render_valve_state) ───────
-
 pub fn render_inner_connected(config: &WidgetConfig, cv: &ChannelValue) -> Markup {
     let cls = state_class(cv.raw_value, config.invert.unwrap_or(false));
     let icon: Option<&str> = match cv.alarm_severity {

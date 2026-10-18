@@ -16,9 +16,9 @@ pub struct ChannelContext {
     pub modbus_pool: Arc<crate::modbus_client::ModbusPool>,
     #[cfg(feature = "modbus-server")]
     pub modbus_bridge: Arc<crate::modbus_bridge::ModbusBridgeContext>,
-    /// Persistent ASCII-TCP connections, shared so widgets on one endpoint never overlap.
+    /// Shared ASCII-TCP client; serialises requests per endpoint so widgets on one endpoint never overlap.
     #[cfg(feature = "ascii-tcp")]
-    pub ascii_tcp_pool: Arc<ascii_tcp::ConnectionPool>,
+    pub ascii_tcp_ctx: Arc<ascii_tcp::Context>,
     /// Per-widget enabled/disabled state bus. `true` = enabled (default for unmanaged widgets).
     pub widget_enabled: DashMap<String, watch::Sender<bool>>,
     /// Per-widget latest-value bus, for app-logic subscriptions.
@@ -158,7 +158,7 @@ impl ChannelContext {
             #[cfg(feature = "modbus-server")]
             modbus_bridge: crate::modbus_bridge::ModbusBridgeContext::new(),
             #[cfg(feature = "ascii-tcp")]
-            ascii_tcp_pool: Arc::new(ascii_tcp::ConnectionPool::new()),
+            ascii_tcp_ctx: Arc::new(ascii_tcp::Context::default()),
             widget_enabled: DashMap::new(),
             widget_value_bus: DashMap::new(),
             widget_connected: DashMap::new(),
@@ -173,7 +173,7 @@ impl ChannelContext {
             local_store: crate::local_channel::LocalStore::new(),
             epics_ctx,
             #[cfg(feature = "ascii-tcp")]
-            ascii_tcp_pool: Arc::new(ascii_tcp::ConnectionPool::new()),
+            ascii_tcp_ctx: Arc::new(ascii_tcp::Context::default()),
             widget_enabled: DashMap::new(),
             widget_value_bus: DashMap::new(),
             widget_connected: DashMap::new(),
@@ -191,7 +191,7 @@ impl ChannelContext {
             #[cfg(feature = "modbus-server")]
             modbus_bridge: crate::modbus_bridge::ModbusBridgeContext::new(),
             #[cfg(feature = "ascii-tcp")]
-            ascii_tcp_pool: Arc::new(ascii_tcp::ConnectionPool::new()),
+            ascii_tcp_ctx: Arc::new(ascii_tcp::Context::default()),
             widget_enabled: DashMap::new(),
             widget_value_bus: DashMap::new(),
             widget_connected: DashMap::new(),
@@ -205,7 +205,7 @@ impl ChannelContext {
         Arc::new(Self {
             local_store: crate::local_channel::LocalStore::new(),
             #[cfg(feature = "ascii-tcp")]
-            ascii_tcp_pool: Arc::new(ascii_tcp::ConnectionPool::new()),
+            ascii_tcp_ctx: Arc::new(ascii_tcp::Context::default()),
             widget_enabled: DashMap::new(),
             widget_value_bus: DashMap::new(),
             widget_connected: DashMap::new(),

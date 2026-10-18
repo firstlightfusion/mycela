@@ -549,7 +549,7 @@
                 "host": "127.0.0.1",
                 "port": 4000,
                 "read_command": "READ TEMPERATURE",
-                "line_ending": "cr-lf",
+                "line_ending": "crlf",
                 "response_mode": "number",
                 "min_poll_interval_ms": 500
               },
@@ -572,7 +572,7 @@
                 "port": 4000,
                 "read_command": "READ SETPOINT",
                 "write_command": "SET SETPOINT {value}",
-                "line_ending": "cr-lf",
+                "line_ending": "crlf",
                 "response_mode": "number",
                 "min_poll_interval_ms": 500
               },
@@ -594,7 +594,7 @@
                 "port": 4000,
                 "read_command": "READ SETPOINT",
                 "write_command": "SET SETPOINT {value}",
-                "line_ending": "cr-lf",
+                "line_ending": "crlf",
                 "response_mode": "number",
                 "min_poll_interval_ms": 500
               },
@@ -616,7 +616,7 @@
                 "port": 4000,
                 "read_command": "READ ENABLED",
                 "write_command": "SET ENABLED {value}",
-                "line_ending": "cr-lf",
+                "line_ending": "crlf",
                 "response_mode": "bool",
                 "min_poll_interval_ms": 500
               }
@@ -633,7 +633,7 @@
                 "host": "127.0.0.1",
                 "port": 4000,
                 "read_command": "READ ENABLED",
-                "line_ending": "cr-lf",
+                "line_ending": "crlf",
                 "response_mode": "bool",
                 "min_poll_interval_ms": 500
               }
@@ -650,7 +650,7 @@
                 "host": "127.0.0.1",
                 "port": 4000,
                 "read_command": "READ MESSAGE",
-                "line_ending": "cr-lf",
+                "line_ending": "crlf",
                 "response_mode": "text",
                 "min_poll_interval_ms": 1000
               }

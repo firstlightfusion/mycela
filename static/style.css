@@ -1943,3 +1943,8 @@ polygon.vs-pending {
 .vs-open-text    { color: #22cc66; }
 .vs-closed-text  { color: #cc2222; }
 .vs-pending-text { color: #888888; }
+
+/* Hide widget info buttons when info is toggled off */
+body.info-off .widget-info-btn {
+    display: none;
+}

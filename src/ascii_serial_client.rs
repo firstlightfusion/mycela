@@ -83,8 +83,8 @@ fn build_serial_channel_value(
         _ => format!("{:.prec$}", physical, prec = precision as usize),
     };
 
-    let display_low = meta_display.map(|d| d.limit_low).unwrap_or(std::f64::MIN);
-    let display_high = meta_display.map(|d| d.limit_high).unwrap_or(std::f64::MAX);
+    let display_low = meta_display.map(|d| d.limit_low).unwrap_or(f64::MIN);
+    let display_high = meta_display.map(|d| d.limit_high).unwrap_or(f64::MAX);
     let control_low = meta_control.map(|c| c.limit_low).unwrap_or(display_low);
     let control_high = meta_control.map(|c| c.limit_high).unwrap_or(display_high);
     let alarm_severity = meta_alarm
@@ -99,14 +99,14 @@ fn build_serial_channel_value(
         display_high,
         control_low,
         control_high,
-        low_alarm_limit: meta_alarm.map(|a| a.low_alarm_limit).unwrap_or(std::f64::MIN),
+        low_alarm_limit: meta_alarm.map(|a| a.low_alarm_limit).unwrap_or(f64::MIN),
         low_warn_limit: meta_alarm
             .map(|a| a.low_warning_limit)
-            .unwrap_or(std::f64::MIN),
+            .unwrap_or(f64::MIN),
         high_warn_limit: meta_alarm
             .map(|a| a.high_warning_limit)
-            .unwrap_or(std::f64::MAX),
-        high_alarm_limit: meta_alarm.map(|a| a.high_alarm_limit).unwrap_or(std::f64::MAX),
+            .unwrap_or(f64::MAX),
+        high_alarm_limit: meta_alarm.map(|a| a.high_alarm_limit).unwrap_or(f64::MAX),
         alarm_severity,
         enum_index: if matches!(config.data_type.as_deref(), Some("enum")) {
             physical.round() as i16

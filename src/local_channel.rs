@@ -59,11 +59,10 @@ pub fn local_stream(
     };
 
     tokio::spawn(async move {
-        let seed = local
-            .initial_value
-            .clone()
-            .unwrap_or_else(|| default_seed_value(&config));
-        let initial = channel_value_from_local_str(&seed, &config);
+        let initial = match local.initial_value.as_deref() {
+            Some(seed) => channel_value_from_local_str(seed, &config),
+            None => undefined_value(&config),
+        };
         let mut watch_rx = store.subscribe(&local.channel, initial);
 
         if tx.send(ChannelEvent::Connected).is_err() {
@@ -109,6 +108,15 @@ pub fn local_write(
     let cv = channel_value_from_local_str(value_str, config);
     store.publish(&local.channel, cv);
     Ok(())
+}
+
+/// Placeholder for a channel nobody has written yet: placeholder value, INVALID severity.
+fn undefined_value(config: &WidgetConfig) -> ChannelValue {
+    let mut cv = channel_value_from_local_str(&default_seed_value(config), config);
+    cv.alarm_severity = 3;
+    cv.alarm_status = 3;
+    cv.primary_meta.alarm_severity = 3;
+    cv
 }
 
 fn default_seed_value(config: &WidgetConfig) -> String {

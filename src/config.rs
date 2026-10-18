@@ -473,7 +473,7 @@ pub struct ScreenConfig {
 /// Adding a new protocol = one new enum variant + struct, no changes to WidgetConfig.
 ///
 /// This enum is extensible because new protocols will be added over time,
-/// therefore it will prevent match statments lacking a wildcard arm.
+/// therefore it will prevent match statements lacking a wildcard arm.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 #[non_exhaustive]
@@ -484,7 +484,7 @@ pub enum ProtocolConfig {
     #[cfg(feature = "modbus")]
     ModbusTcp(ModbusTcpConfig),
     #[cfg(feature = "ascii-tcp")]
-    AsciiTcp(AsciiTcpConfig),
+    AsciiTcp(ascii_tcp::ChannelConfig),
     #[cfg(feature = "ascii-serial")]
     AsciiSerial(AsciiSerialConfig),
 }
@@ -498,6 +498,7 @@ pub struct LocalConfig {
     /// Logical local channel name (e.g. "app:temperature:setpoint").
     pub channel: String,
     /// Optional initial value used when the channel is first created.
+    /// When absent, the channel starts with INVALID alarm severity until it is first written.
     #[serde(default)]
     pub initial_value: Option<String>,
 }
@@ -565,175 +566,6 @@ pub struct ModbusTcpConfig {
     pub bit_index: Option<u8>,
 }
 
-/// ASCII line protocol over TCP.
-#[cfg(feature = "ascii-tcp")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AsciiTcpConfig {
-    /// Target host name or IP address.
-    pub host: String,
-    /// TCP port for ASCII line protocol endpoint.
-    pub port: u16,
-    /// Poll request line sent on each read cycle.
-    ///
-    /// Omit for write-only endpoints: no polling happens and the widget is
-    /// reported as connected so it renders enabled.
-    #[serde(default)]
-    pub read_command: Option<String>,
-    /// Optional printf-style template describing the read response layout.
-    ///
-    /// The first conversion specifier (`%d`, `%f`, `%x`, `%s`) supplies the
-    /// widget value, e.g. `"ARM=%d"` extracts `1` from `ARM=1`.
-    /// When absent, the whole response line is parsed per `response_mode`.
-    #[serde(default)]
-    pub read_response: Option<String>,
-    /// Optional command template used for writes.
-    ///
-    /// When present, `{value}` is replaced with the requested value.
-    /// When absent, the raw value is sent as-is.
-    #[serde(default)]
-    pub write_command: Option<String>,
-    /// Whether the endpoint acknowledges writes with a response line.
-    ///
-    /// Set to `false` for fire-and-forget commands, otherwise the write waits
-    /// for a reply that never arrives and fails with an I/O timeout.
-    #[serde(default = "default_write_expects_response")]
-    pub write_expects_response: bool,
-    /// Line terminator appended to outbound requests.
-    #[serde(default)]
-    pub line_ending: AsciiLineEnding,
-    /// Minimum poll interval in milliseconds.
-    #[serde(default = "default_min_poll_interval_ms")]
-    pub min_poll_interval_ms: u64,
-    /// Timeout in milliseconds for establishing the TCP connection.
-    #[serde(default = "default_connect_timeout_ms")]
-    pub connect_timeout_ms: u64,
-    /// Timeout in milliseconds for a single request/response exchange.
-    ///
-    /// Raise this when the endpoint is slow to answer, or when the client runs
-    /// on a virtual machine where scheduling delays inflate round-trip times.
-    #[serde(default = "default_io_timeout_ms")]
-    pub io_timeout_ms: u64,
-    /// Scale factor applied to parsed numeric values.
-    #[serde(default = "default_scale")]
-    pub scale: f64,
-    /// Offset applied after scaling.
-    #[serde(default = "default_offset")]
-    pub offset: f64,
-    /// Response parse strategy.
-    #[serde(default)]
-    pub response_mode: AsciiResponseMode,
-}
-
-/// ASCII line protocol over serial.
-#[cfg(feature = "ascii-serial")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AsciiSerialConfig {
-    /// Serial device path (e.g. COM3, /dev/ttyUSB0).
-    pub port_path: String,
-    /// Serial baud rate.
-    #[serde(default = "default_serial_baud_rate")]
-    pub baud_rate: u32,
-    /// Data bits setting.
-    #[serde(default)]
-    pub data_bits: SerialDataBits,
-    /// Parity setting.
-    #[serde(default)]
-    pub parity: SerialParity,
-    /// Stop bits setting.
-    #[serde(default)]
-    pub stop_bits: SerialStopBits,
-    /// Poll request line sent on each read cycle.
-    pub read_command: String,
-    /// Optional command template used for writes.
-    ///
-    /// When present, `{value}` is replaced with the requested value.
-    /// When absent, the raw value is sent as-is.
-    #[serde(default)]
-    pub write_command: Option<String>,
-    /// Line terminator appended to outbound requests.
-    #[serde(default)]
-    pub line_ending: AsciiLineEnding,
-    /// Minimum poll interval in milliseconds.
-    #[serde(default = "default_min_poll_interval_ms")]
-    pub min_poll_interval_ms: u64,
-    /// Scale factor applied to parsed numeric values.
-    #[serde(default = "default_scale")]
-    pub scale: f64,
-    /// Offset applied after scaling.
-    #[serde(default = "default_offset")]
-    pub offset: f64,
-    /// Response parse strategy.
-    #[serde(default)]
-    pub response_mode: AsciiResponseMode,
-}
-
-#[cfg(any(feature = "ascii-tcp", feature = "ascii-serial"))]
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
-#[serde(rename_all = "kebab-case")]
-pub enum AsciiLineEnding {
-    #[default]
-    Lf,
-    CrLf,
-    Cr,
-}
-
-#[cfg(any(feature = "ascii-tcp", feature = "ascii-serial"))]
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
-#[serde(rename_all = "kebab-case")]
-pub enum AsciiResponseMode {
-    #[default]
-    Number,
-    Bool,
-    Text,
-    /// Treats receipt of any accepted response line as a pulse: the value is
-    /// always `1` when a line arrives — content beyond matching `read_response`
-    /// doesn't matter.
-    ///
-    /// Intended for heartbeat/keep-alive lines pushed unsolicited by the device
-    /// (e.g. `ALIVE`). Set `read_response` to the exact literal to watch for
-    /// (e.g. `"ALIVE"`) so other unsolicited lines (errors, other widgets'
-    /// replies) are silently discarded instead of producing a pulse. Pair with
-    /// an empty/no-op `read_command` so the device isn't asked to reply; the
-    /// poll just waits for the next broadcast, and a stalled heartbeat surfaces
-    /// as the normal `Disconnected` state once `io_timeout_ms` elapses without
-    /// a match.
-    ///
-    /// This mode only reports presence — deriving stateful behavior such as a
-    /// blinking LED from repeated pulses is left to application logic (e.g. via
-    /// `ChannelContext::subscribe_widget_value_updates`).
-    Presence,
-}
-
-#[cfg(feature = "ascii-serial")]
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
-#[serde(rename_all = "kebab-case")]
-pub enum SerialDataBits {
-    Five,
-    Six,
-    Seven,
-    #[default]
-    Eight,
-}
-
-#[cfg(feature = "ascii-serial")]
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
-#[serde(rename_all = "kebab-case")]
-pub enum SerialParity {
-    #[default]
-    None,
-    Odd,
-    Even,
-}
-
-#[cfg(feature = "ascii-serial")]
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
-#[serde(rename_all = "kebab-case")]
-pub enum SerialStopBits {
-    #[default]
-    One,
-    Two,
-}
-
 #[cfg(feature = "modbus")]
 fn default_modbus_port() -> u16 {
     502
@@ -754,18 +586,6 @@ fn default_scale() -> f64 {
 fn default_offset() -> f64 {
     0.0
 }
-#[cfg(feature = "ascii-tcp")]
-fn default_write_expects_response() -> bool {
-    true
-}
-#[cfg(feature = "ascii-tcp")]
-fn default_connect_timeout_ms() -> u64 {
-    2_000
-}
-#[cfg(feature = "ascii-tcp")]
-fn default_io_timeout_ms() -> u64 {
-    2_000
-}
 #[cfg(feature = "modbus")]
 fn default_word_count() -> u8 {
     1
@@ -781,9 +601,15 @@ fn default_serial_baud_rate() -> u32 {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ModbusRegisterType {
+    /// Holding registers are read/write data registers.
+    /// Most versitile of the register types and can hold 16-bit analogue or numeric values. 
     HoldingRegister,
+    /// Similar to holding registers, but read-only 
+    /// and typically used to represent input values from sensors or other external devices.
     InputRegister,
+    /// Coils are binary data registers typically used to represent discrete on/off states.
     Coil,
+    /// Simialar to Coils but read-only.
     DiscreteInput,
 }
 
@@ -946,9 +772,9 @@ impl WidgetConfig {
         }
     }
 
-    /// Returns the `AsciiTcpConfig` if this widget uses the `ascii-tcp` protocol.
+    /// Returns the `ascii_tcp::ChannelConfig` if this widget uses the `ascii-tcp` protocol.
     #[cfg(feature = "ascii-tcp")]
-    pub fn ascii_tcp(&self) -> Option<&AsciiTcpConfig> {
+    pub fn ascii_tcp(&self) -> Option<&ascii_tcp::ChannelConfig> {
         match &self.protocol {
             Some(ProtocolConfig::AsciiTcp(a)) => Some(a),
             _ => None,

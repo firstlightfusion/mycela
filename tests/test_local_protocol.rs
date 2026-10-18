@@ -82,6 +82,32 @@ mod test_local_protocol {
     }
 
     #[tokio::test]
+    async fn local_stream_without_initial_value_starts_invalid_until_written() {
+        let ctx = channel_ctx();
+        let mut widget = local_widget("local-undefined", "app:undefined");
+        widget.protocol = Some(ProtocolConfig::Local(LocalConfig {
+            channel: "app:undefined".to_string(),
+            initial_value: None,
+        }));
+
+        let mut stream = Box::pin(channel_stream(Arc::new(widget.clone()), ctx.clone()));
+
+        let _ = next_event(&mut stream).await;
+        match next_event(&mut stream).await {
+            ChannelEvent::Value(cv) => assert_eq!(cv.alarm_severity, 3),
+            other => panic!("expected Value, got {:?}", other),
+        }
+
+        let result = widgets::write_channel(widget, "7".to_string(), ctx).await;
+        assert!(result.into_string().contains("write-ok"));
+
+        match next_event(&mut stream).await {
+            ChannelEvent::Value(cv) => assert_eq!(cv.alarm_severity, 0),
+            other => panic!("expected Value after local write, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
     async fn local_write_publishes_to_subscribers() {
         let ctx = channel_ctx();
         let widget = local_widget("local-write", "app:setpoint");

@@ -1,10 +1,6 @@
 use crate::channel::ChannelContext;
-#[cfg(feature = "ascii-tcp")]
-use crate::config::AsciiTcpConfig;
 #[cfg(feature = "modbus")]
 use crate::config::ModbusTcpConfig;
-#[cfg(feature = "ascii-serial")]
-use crate::config::AsciiSerialConfig;
 use crate::config::{ActionConfig, ProtocolConfig, ScreenConfig, WidgetConfig, WidgetType};
 use maud::{html, Markup, PreEscaped};
 use std::sync::Arc;
@@ -531,11 +527,11 @@ async fn write_channel_modbus(
 #[cfg(feature = "ascii-tcp")]
 async fn write_channel_ascii_tcp(
     widget_id: &str,
-    a: AsciiTcpConfig,
+    a: ascii_tcp::ChannelConfig,
     value_str: String,
     channel_ctx: Arc<ChannelContext>,
 ) -> Markup {
-    match crate::ascii_tcp_client::write(&a, &value_str, &channel_ctx.ascii_tcp_pool).await {
+    match crate::ascii_tcp_client::write(&a, &value_str, &channel_ctx.ascii_tcp_ctx).await {
         Ok(()) => {
             tracing::info!("[{}] write_channel ASCII TCP OK", widget_id);
             html! { span class="write-ok" { "OK" } }
