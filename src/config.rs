@@ -574,15 +574,15 @@ fn default_modbus_port() -> u16 {
 fn default_unit_id() -> u8 {
     1
 }
-#[cfg(any(feature = "modbus", feature = "ascii-tcp", feature = "ascii-serial"))]
+#[cfg(any(feature = "modbus", feature = "ascii-serial"))]
 fn default_min_poll_interval_ms() -> u64 {
     500
 }
-#[cfg(any(feature = "modbus", feature = "ascii-tcp", feature = "ascii-serial"))]
+#[cfg(any(feature = "modbus", feature = "ascii-serial"))]
 fn default_scale() -> f64 {
     1.0
 }
-#[cfg(any(feature = "modbus", feature = "ascii-tcp", feature = "ascii-serial"))]
+#[cfg(any(feature = "modbus", feature = "ascii-serial"))]
 fn default_offset() -> f64 {
     0.0
 }
