@@ -8,9 +8,25 @@ use rand::rngs::StdRng;
 use mycela::config::{WidgetConfig, WidgetType};
 use mycela::widgets::collect_data_widgets;
 
-/// Per-chart simulation state. The simulator only drives chart array PVs;
-/// scalar PVs (double, int32, etc.) are left for external EPICS clients.
+/// Scalar PV swept through every alarm band of the demo `level` preset.
+const SWEEP_PV: &str = "demo:level";
+/// Seconds for one full sweep cycle.
+const SWEEP_PERIOD_S: f64 = 40.0;
+/// Scalar PVs posted once at start-up: alarm-state references and the initial setpoint.
+/// Alarm severity is derived from the widget metadata in `demo_app.json`.
+const FIXED_PVS: [(&str, f64); 5] = [
+    ("demo:alarm:normal", 50.0),
+    ("demo:alarm:minor", 85.0),
+    ("demo:alarm:major", 95.0),
+    ("demo:alarm:invalid", 5.0),
+    ("demo:setpoint", 50.0),
+];
+
+/// Per-PV simulation state. Other scalar PVs (commands, modes) are left for
+/// EPICS clients to write.
 enum SimPv {
+    /// Scalar double PV following a sine sweep.
+    Sweep { pv_name: String },
     /// Double array PV — rolling sine wave + noise buffer (line / histogram).
     DoubleArray {
         pv_name: String,
@@ -40,6 +56,8 @@ pub fn start_demo_simulator(
     handle: pvxs::ServerHandle,
     widgets: &[WidgetConfig],
 ) {
+    post_fixed_pvs(&handle, widgets);
+
     let sim_pvs = build_sim_pvs(widgets);
     if sim_pvs.is_empty() {
         tracing::info!("Demo simulator: no server-backed PVs found, skipping");
@@ -74,6 +92,11 @@ fn build_sim_pvs(widgets: &[WidgetConfig]) -> Vec<SimPv> {
         }
 
         if w.widget_type == WidgetType::Group {
+            continue;
+        }
+
+        if pv_name == SWEEP_PV {
+            sim_pvs.push(SimPv::Sweep { pv_name });
             continue;
         }
 
@@ -134,6 +157,22 @@ fn build_sim_pvs(widgets: &[WidgetConfig]) -> Vec<SimPv> {
     sim_pvs
 }
 
+fn post_fixed_pvs(handle: &pvxs::ServerHandle, widgets: &[WidgetConfig]) {
+    let served: std::collections::HashSet<String> = collect_data_widgets(widgets)
+        .iter()
+        .filter_map(|w| w.epics_pvxs())
+        .filter(|e| e.server.is_some())
+        .map(|e| e.pv_name.clone())
+        .collect();
+    for (pv_name, value) in FIXED_PVS {
+        if served.contains(pv_name) {
+            if let Err(e) = handle.post_double(pv_name, value) {
+                tracing::warn!("Simulator: failed to post {}: {}", pv_name, e);
+            }
+        }
+    }
+}
+
 fn display_limits(w: &WidgetConfig) -> (f64, f64) {
     if let Some(epics) = w.epics_pvxs() {
         if let Some(server) = &epics.server {
@@ -157,6 +196,7 @@ async fn run_simulation_loop(
         .map(|d| d.subsec_nanos() as u64)
         .unwrap_or(42);
     let mut rng = StdRng::seed_from_u64(seed);
+    let started = std::time::Instant::now();
 
     loop {
         interval.tick().await;
@@ -165,6 +205,16 @@ async fn run_simulation_loop(
 
         for pv in sim_pvs.iter_mut() {
             match pv {
+                SimPv::Sweep { pv_name } => {
+                    let t = started.elapsed().as_secs_f64();
+                    // 5–95 %: crosses LOLO, LO, normal, HI and HIHI each cycle.
+                    let value = 50.0 + 45.0 * (std::f64::consts::TAU * t / SWEEP_PERIOD_S).sin();
+                    if let Err(e) = handle.post_double(pv_name, value) {
+                        tracing::warn!("Simulator: failed to post {}: {}", pv_name, e);
+                        should_stop = true;
+                        break;
+                    }
+                }
                 SimPv::DoubleArray {
                     pv_name, buffer, max_points, phase, amplitude, offset,
                 } => {

@@ -158,35 +158,55 @@ mod test_config_widget_config {
     }
 
     #[test]
-    fn test_demo_text_update_dark_retains_display_and_alarm_metadata() {
+    fn test_demo_level_readback_retains_display_and_alarm_metadata() {
         let config = AppConfig::load("examples/demo_app.json").unwrap();
-        let widget = find_widget_in_screens(&config, "text_update_dark").unwrap();
+        let widget = find_widget_in_screens(&config, "epics_level_readback").unwrap();
 
         let metadata = widget.metadata.as_ref().unwrap();
         let display = metadata.display.as_ref().unwrap();
         let alarm = metadata.alarm.as_ref().unwrap();
 
         assert_eq!(widget.widget_type, WidgetType::TextUpdate);
-        assert_eq!(display.units, "mm");
-        assert_eq!(display.precision, 3);
-        assert_eq!(alarm.low_alarm_limit, 5.0);
-        assert_eq!(alarm.high_alarm_limit, 95.0);
+        assert_eq!(display.units, "%");
+        assert_eq!(display.precision, 1);
+        assert_eq!(alarm.low_alarm_limit, 10.0);
+        assert_eq!(alarm.high_alarm_limit, 90.0);
+    }
+
+    fn layout(widgets: &[WidgetConfig]) -> Vec<(String, Vec<(WidgetType, String)>)> {
+        widgets
+            .iter()
+            .map(|group| {
+                let children = group.children.as_deref().unwrap_or_default();
+                (
+                    group.label.clone(),
+                    children
+                        .iter()
+                        .map(|w| (w.widget_type, w.label.clone()))
+                        .collect(),
+                )
+            })
+            .collect()
     }
 
     #[test]
-    fn test_demo_app_text_update_dark_retains_display_and_alarm_metadata() {
+    fn test_demo_screens_share_common_layout_and_alarm_states() {
         let config = AppConfig::load("examples/demo_app.json").unwrap();
-        let widget = find_widget_in_screens(&config, "text_update_dark").unwrap();
+        assert_eq!(config.screens.len(), 3);
+        // The first four groups are common; a final group holds protocol-specific features.
+        let common = layout(&config.screens[0].widgets[..4]);
+        for screen in &config.screens {
+            assert_eq!(screen.widgets.len(), 5, "screen '{}'", screen.id);
+            assert_eq!(layout(&screen.widgets[..4]), common, "screen '{}'", screen.id);
 
-        let metadata = widget.metadata.as_ref().unwrap();
-        let display = metadata.display.as_ref().unwrap();
-        let alarm = metadata.alarm.as_ref().unwrap();
-
-        assert_eq!(widget.widget_type, WidgetType::TextUpdate);
-        assert_eq!(display.units, "mm");
-        assert_eq!(display.precision, 3);
-        assert_eq!(alarm.low_alarm_limit, 5.0);
-        assert_eq!(alarm.high_alarm_limit, 95.0);
+            let references = screen.widgets[1].children.as_ref().unwrap();
+            for (widget, (value, severity)) in
+                references.iter().zip([(50.0, 0), (85.0, 1), (95.0, 2), (5.0, 3)])
+            {
+                let alarm = widget.metadata.as_ref().unwrap().alarm.as_ref().unwrap();
+                assert_eq!(alarm.compute_severity(value), severity, "widget '{}'", widget.id);
+            }
+        }
     }
 
     #[test]

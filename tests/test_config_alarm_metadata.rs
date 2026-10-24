@@ -62,6 +62,14 @@ mod test_config_alarm_metadata {
     }
 
     #[test]
+    fn test_invalid_severity_string_produces_invalid_severity() {
+        let mut m = alarm_limits();
+        m.low_alarm_severity = "INVALID".to_string();
+        assert_eq!(m.compute_severity(5.0), 3);
+        assert_eq!(m.compute_severity(50.0), 0);
+    }
+
+    #[test]
     fn test_unrecognised_severity_string_in_metadata_produces_no_alarm() {
         let m = AlarmMetadata {
             low_alarm_limit: 10.0,

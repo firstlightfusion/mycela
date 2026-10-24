@@ -1,5 +1,6 @@
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use tokio::task::JoinHandle;
 
@@ -8,12 +9,15 @@ use ascii_tcp::LineEnding;
 struct SimulatorState {
     setpoint_bits: AtomicU64,
     enabled: AtomicBool,
+    /// Generic numeric values for `SET <NAME> <value>` / `READ <NAME>`; unset names read 0.
+    values: Mutex<HashMap<String, f64>>,
 }
 
 pub fn start_ascii_tcp_simulator(port: u16) -> JoinHandle<()> {
     let state = Arc::new(SimulatorState {
         setpoint_bits: AtomicU64::new(50.0_f64.to_bits()),
         enabled: AtomicBool::new(false),
+        values: Mutex::new(HashMap::new()),
     });
 
     mycela::ascii_tcp_server::start_server_with_line_ending(
@@ -66,6 +70,23 @@ fn handle_request(state: &SimulatorState, request: &str) -> Result<String, Strin
             };
             state.enabled.store(enabled, Ordering::Relaxed);
             Ok("OK".to_string())
+        }
+        _ if normalized.starts_with("SET ") => {
+            let (name, value) = normalized["SET ".len()..]
+                .trim()
+                .split_once(' ')
+                .ok_or_else(|| format!("Expected 'SET <NAME> <value>', got '{request}'"))?;
+            let value = value
+                .trim()
+                .parse::<f64>()
+                .map_err(|_| format!("Invalid value in '{request}'"))?;
+            state.values.lock().unwrap().insert(name.to_string(), value);
+            Ok("OK".to_string())
+        }
+        _ if normalized.starts_with("READ ") => {
+            let name = normalized["READ ".len()..].trim();
+            let value = state.values.lock().unwrap().get(name).copied().unwrap_or(0.0);
+            Ok(value.to_string())
         }
         _ => Err(format!("Unknown ASCII TCP command '{request}'")),
     }

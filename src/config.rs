@@ -1061,13 +1061,14 @@ pub struct AlarmMetadata {
 impl AlarmMetadata {
     fn severity_int(s: &str) -> i32 {
         match s {
+            "INVALID" => 3,
             "MAJOR" => 2,
             "MINOR" => 1,
             _ => 0,
         }
     }
 
-    /// Compute alarm severity (0=none, 1=MINOR, 2=MAJOR) for a given scalar value.
+    /// Compute alarm severity (0=none, 1=MINOR, 2=MAJOR, 3=INVALID) for a given scalar value.
     pub fn compute_severity(&self, value: f64) -> i32 {
         if value < self.low_alarm_limit {
             Self::severity_int(&self.low_alarm_severity)

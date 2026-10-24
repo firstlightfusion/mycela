@@ -5,21 +5,23 @@
 /// required.  The in-memory register bank is updated by a background sine-wave
 /// task to simulate live process values.
 ///
-/// # Demo register map (matches `examples/demo_config.json` Modbus widgets)
+/// # Demo register map (matches the Modbus screen in `examples/demo_app.json`)
 ///
 /// Holding registers:
 ///   1000  — temperature (physical = raw * 0.01, range 20–30 °C)
 ///   1001  — pressure    (physical = raw * 0.1,  range 900–1100 hPa)
-///   1002  — setpoint    (writable, initial = 500 → 50.0 with scale 0.1)
+///   1002  — level setpoint (writable, initial = 500 → 50.0 with scale 0.1)
 ///   1003  — counter     (increments each tick)
+///   1004  — pump mode   (writable enum index, initial = 0)
+///   3000+ — unset, read as 0 (alarm-state references add a fixed offset)
 ///
 /// Coils:
-///   0  — status LED (toggles every ~2 s)
-///   1  — writable output coil (initial = false)
-///
+///   0  — heartbeat (toggles every ~2 s)
+///   1  — pump run command (writable, initial = false)
 ///   2  — valve B status (toggles every ~3 s, out of phase with coil 0)
+///
 /// Input registers (read-only):
-///   2000  — sensor value (physical = raw * 0.01, range 0–100)
+///   2000  — tank level (physical = raw * 0.01, sweeps 0.5–99.5 %)
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
