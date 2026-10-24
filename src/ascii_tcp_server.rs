@@ -52,6 +52,9 @@ where
 }
 
 /// Runs `ctx` with `handler` on a task; aborting the returned handle drops the server, which shuts it down.
+///
+/// A handler error is answered with an `ERROR <message>` line rather than ending the
+/// connection, which clients share across all of their channels.
 fn spawn_server<F, Fut>(ctx: ServerContext, handler: F) -> JoinHandle<()>
 where
     F: Fn(String, SocketAddr) -> Fut + Send + Sync + 'static,
@@ -60,9 +63,7 @@ where
     let ctx = ctx.with_handler(move |request, peer| {
         let response = handler(request, peer);
         async move {
-            response.await.map_err(|err| {
-                AsciiTcpError::Io(std::io::Error::new(std::io::ErrorKind::Other, err))
-            })
+            Ok::<_, AsciiTcpError>(response.await.unwrap_or_else(|err| format!("ERROR {err}")))
         }
     });
 

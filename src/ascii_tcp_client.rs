@@ -1,41 +1,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use ascii_tcp::{AsciiResponseMode, ChannelConfig, Context};
+use ascii_tcp::{AsciiResponseMode, AsciiTcpError, ChannelReader, Context};
 
 use crate::channel::{ChannelEvent, ChannelValue};
 use crate::config::{ProtocolConfig, WidgetConfig};
-
-fn parse_numeric_response(s: &str) -> Result<f64, String> {
-    for token in s
-        .split(|c: char| c.is_whitespace() || c == ',' || c == ';' || c == '=')
-        .filter(|t| !t.is_empty())
-    {
-        if let Ok(v) = token.parse::<f64>() {
-            return Ok(v);
-        }
-    }
-    Err(format!("No numeric token found in response '{}'", s))
-}
-
-fn parse_bool_response(s: &str) -> Result<f64, String> {
-    let norm = s.trim().to_ascii_lowercase();
-    match norm.as_str() {
-        "1" | "true" | "on" | "open" => Ok(1.0),
-        "0" | "false" | "off" | "closed" => Ok(0.0),
-        _ => Err(format!("Could not parse boolean response '{}'", s)),
-    }
-}
-
-fn parse_response(cfg: &ChannelConfig, response: &str) -> Result<f64, String> {
-    match cfg.response_mode {
-        AsciiResponseMode::Number => parse_numeric_response(response),
-        AsciiResponseMode::Bool => parse_bool_response(response),
-        AsciiResponseMode::Text => Ok(0.0),
-        // Content is irrelevant; matching `read_response` already confirmed this is the pulse we want.
-        AsciiResponseMode::Presence => Ok(1.0),
-    }
-}
 
 fn build_channel_value(physical: f64, raw_response: &str, config: &WidgetConfig) -> ChannelValue {
     let meta_display = config.metadata.as_ref().and_then(|md| md.display.as_ref());
@@ -97,223 +66,90 @@ fn build_channel_value(physical: f64, raw_response: &str, config: &WidgetConfig)
     }
 }
 
-/// Narrows a response line to the field selected by `read_response`, if configured.
-fn extract_field(
-    template: Option<&ascii_tcp::ResponseTemplate>,
-    response: String,
-) -> Result<String, String> {
-    match template {
-        Some(template) if template.spec_count() > 0 => template
-            .capture_first(&response)
-            .map(|capture| capture.text)
-            .map_err(|e| e.to_string()),
-        _ => Ok(response),
-    }
-}
-
-/// Executes a single request through the shared `ascii_tcp::Context` and returns the response line.
-///
-/// Lines `accept` rejects (e.g. the Opta's connect banner or a heartbeat) are skipped until
-/// a match arrives or `io_timeout_ms` elapses. Runs once rather than retrying forever so
-/// callers see failures and own their retry cadence.
-async fn exchange<F>(
-    ctx: &Context,
-    a: &ChannelConfig,
-    request: &str,
-    accept: F,
-) -> Result<String, ascii_tcp::AsciiTcpError>
-where
-    F: Fn(&str) -> bool,
-{
-    Ok(ctx
-        .execute_command_matching(&a.command(request), accept)
-        .await?
-        .response)
-}
-
-/// Create an async stream of `ChannelEvent`s backed by ascii_tcp
+/// Create an async stream of `ChannelEvent`s that widgets consume, yielding connection status and values.
+/// Handles polling, response ordering, per-widget disconnect reporting.
+/// 
+/// The device only answers requests, so the stream polls `read_command` every
+/// `min_poll_interval_ms`. Polling stops as soon as the stream is dropped.
 pub fn ascii_tcp_stream(
     config: Arc<WidgetConfig>,
     ctx: Arc<Context>,
 ) -> impl tokio_stream::Stream<Item = ChannelEvent> + Send + 'static {
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ChannelEvent>();
-
-    let a = match config.protocol.as_ref() {
-        Some(ProtocolConfig::AsciiTcp(a)) => a.clone(),
-        _ => {
-            let _ = tx.send(ChannelEvent::Error(
-                "ascii_tcp_stream: not an ascii-tcp widget".into(),
-            ));
-            return tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
-        }
-    };
-
-    // A presence widget watches for unsolicited lines, so it needs no request to send.
-    let read_command = match a.read_command.clone() {
-        Some(command) => command,
-        None if matches!(a.response_mode, AsciiResponseMode::Presence) => String::new(),
-        None => {
-            // Write-only endpoint: report it live once so the widget renders enabled, then idle.
-            let _ = tx.send(ChannelEvent::Connected);
-            let _ = tx.send(ChannelEvent::Value(build_channel_value(0.0, "", &config)));
-            tokio::spawn(async move { tx.closed().await });
-            return tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
-        }
-    };
-
-    tokio::spawn(run_poll(a, read_command, config, tx, ctx));
-
-    tokio_stream::wrappers::UnboundedReceiverStream::new(rx)
-}
-
-async fn run_poll(
-    a: ChannelConfig,
-    read_command: String,
-    config: Arc<WidgetConfig>,
-    tx: tokio::sync::mpsc::UnboundedSender<ChannelEvent>,
-    ctx: Arc<Context>,
-) {
-    let mut interval = tokio::time::interval(Duration::from_millis(a.min_poll_interval_ms.max(50)));
-    let mut was_connected = false;
-    let mut last_value_str: Option<String> = None;
-
-    let response_template = match a.read_response.as_deref() {
-        Some(source) => match ascii_tcp::ResponseTemplate::compile(source) {
-            Ok(template) => Some(template),
-            Err(e) => {
-                let _ = tx.send(ChannelEvent::Error(e.to_string()));
-                return;
-            }
-        },
-        None => None,
-    };
-
-    // A listen-only poll already blocks until a line arrives. Pacing it would leave gaps in
-    // which unsolicited lines are missed, so it only backs off after a failure.
-    let listen_only = read_command.is_empty();
-    let mut failed = false;
-
-    loop {
-        if !listen_only || failed {
-            interval.tick().await;
-        }
-        failed = false;
-
-        let accepts_response = |line: &str| {
-            response_template
-                .as_ref()
-                .map_or(true, |t| t.captures(line).is_ok())
+    async_stream::stream! {
+        let Some(ProtocolConfig::AsciiTcp(a)) = config.protocol.clone() else {
+            yield ChannelEvent::Error("ascii_tcp_stream: not an ascii-tcp widget".into());
+            return;
         };
 
-        match exchange(&ctx, &a, &read_command, accepts_response).await {
-            Ok(response) => {
-                if !was_connected {
-                    was_connected = true;
-                    let _ = tx.send(ChannelEvent::Connected);
-                }
+        // A presence widget without a read command listens for unsolicited lines.
+        if a.read_command.is_none() && a.response_mode != AsciiResponseMode::Presence {
+            // Write-only endpoint: report it live once so the widget renders enabled, then idle.
+            yield ChannelEvent::Connected;
+            yield ChannelEvent::Value(build_channel_value(0.0, "", &config));
+            std::future::pending::<()>().await;
+        }
 
-                // A line that does not fit the template is not the reply we are waiting for.
-                if let Some(template) = response_template.as_ref() {
-                    if template.captures(&response).is_err() {
-                        if matches!(a.response_mode, AsciiResponseMode::Presence) {
-                            continue;
-                        }
-                        let message = format!(
-                            "response '{}' does not match template '{}'",
-                            response,
-                            template.as_str()
-                        );
-                        if tx.send(ChannelEvent::Error(message)).is_err() {
-                            break;
-                        }
-                        continue;
-                    }
-                }
-
-                let field = match extract_field(response_template.as_ref(), response) {
-                    Ok(field) => field,
-                    Err(e) => {
-                        if tx.send(ChannelEvent::Error(e)).is_err() {
-                            break;
-                        }
-                        continue;
-                    }
-                };
-
-                let physical = match parse_response(&a, &field) {
-                    Ok(raw) => raw * a.scale + a.offset,
-                    Err(e) => {
-                        if tx.send(ChannelEvent::Error(e)).is_err() {
-                            break;
-                        }
-                        continue;
-                    }
-                };
-
-                let cv = if matches!(a.response_mode, AsciiResponseMode::Text) {
-                    let mut cv = build_channel_value(0.0, &field, &config);
-                    cv.value_str = field;
-                    cv
-                } else {
-                    build_channel_value(physical, &field, &config)
-                };
-
-                // Presence pulses are events in their own right (e.g. a heartbeat), not a
-                // value the UI displays, so every accepted pulse must propagate even though
-                // it never differs from the last one.
-                let is_repeat_pulse = matches!(a.response_mode, AsciiResponseMode::Presence);
-                if is_repeat_pulse || last_value_str.as_deref() != Some(&cv.value_str) {
-                    last_value_str = Some(cv.value_str.clone());
-                    if tx.send(ChannelEvent::Value(cv)).is_err() {
-                        break;
-                    }
-                }
-            }
+        let reader = match ChannelReader::new(a) {
+            Ok(reader) => reader,
             Err(e) => {
-                failed = true;
-                if was_connected {
-                    was_connected = false;
-                    last_value_str = None;
-                    if tx.send(ChannelEvent::Disconnected(e.to_string())).is_err() {
-                        break;
+                yield ChannelEvent::Error(e.to_string());
+                return;
+            }
+        };
+        let a = reader.config();
+        let mut interval =
+            tokio::time::interval(Duration::from_millis(a.min_poll_interval_ms.max(50)));
+        let mut was_connected = false;
+        let mut last_value_str: Option<String> = None;
+
+        // A listen-only poll already blocks until a line arrives. Pacing it would leave gaps in
+        // which unsolicited lines are missed, so it only backs off after a failure.
+        let listen_only = a.read_command.as_deref().unwrap_or_default().is_empty();
+        let mut failed = false;
+
+        loop {
+            if !listen_only || failed {
+                interval.tick().await;
+            }
+            failed = false;
+
+            let result = ctx.read_channel(&reader).await;
+            // A reply that holds no usable value still proves the device is reachable.
+            let replied = matches!(
+                result,
+                Ok(_) | Err(AsciiTcpError::InvalidValue(_) | AsciiTcpError::ResponseMismatch { .. })
+            );
+            if replied && !was_connected {
+                was_connected = true;
+                yield ChannelEvent::Connected;
+            }
+
+            match result {
+                Ok(reading) => {
+                    let mut cv = build_channel_value(reading.value, &reading.text, &config);
+                    if a.response_mode == AsciiResponseMode::Text {
+                        cv.value_str = reading.text;
+                    }
+
+                    // Presence pulses are events in their own right (e.g. a heartbeat), not a
+                    // value the UI displays, so every accepted pulse must propagate even though
+                    // it never differs from the last one.
+                    let is_repeat_pulse = a.response_mode == AsciiResponseMode::Presence;
+                    if is_repeat_pulse || last_value_str.as_deref() != Some(&cv.value_str) {
+                        last_value_str = Some(cv.value_str.clone());
+                        yield ChannelEvent::Value(cv);
+                    }
+                }
+                Err(e) if replied => yield ChannelEvent::Error(e.to_string()),
+                Err(e) => {
+                    failed = true;
+                    if was_connected {
+                        was_connected = false;
+                        last_value_str = None;
+                        yield ChannelEvent::Disconnected(e.to_string());
                     }
                 }
             }
         }
-    }
-}
-
-pub async fn write(a: &ChannelConfig, value_str: &str, ctx: &Context) -> Result<(), String> {
-    let outbound_value = if matches!(a.response_mode, AsciiResponseMode::Number) {
-        let physical: f64 = value_str
-            .trim()
-            .parse()
-            .map_err(|_| format!("Invalid numeric value '{}'", value_str.trim()))?;
-        let raw = (physical - a.offset) / a.scale;
-        raw.to_string()
-    } else {
-        value_str.trim().to_string()
-    };
-
-    let command = match &a.write_command {
-        Some(tpl) => tpl.replace("{value}", &outbound_value),
-        None => outbound_value,
-    };
-
-    if a.write_expects_response {
-        // Skip unsolicited lines; the device acknowledges a write by echoing it or reporting an error.
-        let response = exchange(ctx, a, &command, |line| {
-            line == command || line.starts_with("ERROR")
-        })
-        .await
-        .map_err(|e| e.to_string())?;
-        if response.starts_with("ERROR") {
-            return Err(response);
-        }
-        Ok(())
-    } else {
-        ctx.send_command(&a.command(command))
-            .await
-            .map_err(|e| e.to_string())
     }
 }

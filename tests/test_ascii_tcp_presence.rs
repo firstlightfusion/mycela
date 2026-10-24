@@ -57,17 +57,17 @@ async fn presence_widget_without_read_command_reports_every_pulse() {
     let ctx = Arc::new(ascii_tcp::Context::default());
 
     for (id, command, response) in [("hve", "HVE?", "HVE=%d"), ("ignored", "XINTL?", "XINTL=%d")] {
-        let mut poller = mycela::ascii_tcp_client::ascii_tcp_stream(
+        let mut poller = Box::pin(mycela::ascii_tcp_client::ascii_tcp_stream(
             Arc::new(widget(port, id, Some(command), response, "number")),
             ctx.clone(),
-        );
+        ));
         tokio::spawn(async move { while poller.next().await.is_some() {} });
     }
 
-    let mut stream = mycela::ascii_tcp_client::ascii_tcp_stream(
+    let mut stream = Box::pin(mycela::ascii_tcp_client::ascii_tcp_stream(
         Arc::new(widget(port, "heartbeat_pulse", None, "ALIVE", "presence")),
         ctx,
-    );
+    ));
 
     let mut pulses = 0;
     let deadline = tokio::time::Instant::now() + Duration::from_millis(1500);

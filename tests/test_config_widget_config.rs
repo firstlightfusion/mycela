@@ -197,14 +197,38 @@ mod test_config_widget_config {
         let common = layout(&config.screens[0].widgets[..4]);
         for screen in &config.screens {
             assert_eq!(screen.widgets.len(), 5, "screen '{}'", screen.id);
-            assert_eq!(layout(&screen.widgets[..4]), common, "screen '{}'", screen.id);
+            assert_eq!(
+                layout(&screen.widgets[..4]),
+                common,
+                "screen '{}'",
+                screen.id
+            );
+
+            let pump_run = find_widget(
+                &screen.widgets,
+                &format!(
+                    "{}_pump_run_timeout",
+                    screen.widgets[0].id.split('_').next().unwrap()
+                ),
+            )
+            .unwrap();
+            assert_eq!(pump_run.widget_type, WidgetType::ToggleButton);
+            assert_eq!(pump_run.reset_timeout, Some(15000));
+            assert_eq!(pump_run.reset_default, Some(0.0));
 
             let references = screen.widgets[1].children.as_ref().unwrap();
             for (widget, (value, severity)) in
-                references.iter().zip([(50.0, 0), (85.0, 1), (95.0, 2), (5.0, 3)])
+                references
+                    .iter()
+                    .zip([(50.0, 0), (85.0, 1), (95.0, 2), (5.0, 3)])
             {
                 let alarm = widget.metadata.as_ref().unwrap().alarm.as_ref().unwrap();
-                assert_eq!(alarm.compute_severity(value), severity, "widget '{}'", widget.id);
+                assert_eq!(
+                    alarm.compute_severity(value),
+                    severity,
+                    "widget '{}'",
+                    widget.id
+                );
             }
         }
     }

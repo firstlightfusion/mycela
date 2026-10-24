@@ -49,8 +49,16 @@
     "pump-run": {
       "type": "toggle_button",
       "label": "Run Command",
-      "description": "Latching run command: reflects live state, sends the opposite value",
+      "description": "Latching run command: reflects live state, sends the opposite value.",
       "data_type": "bool"
+    },
+    "pump-run-timeout": {
+      "type": "toggle_button",
+      "label": "Run Command",
+      "description": "Latching run command: reflects live state, sends the opposite value. Resets to 0 (stopped) after 15 s",
+      "data_type": "bool",
+      "reset_timeout": 15000,
+      "reset_default": 0
     },
     "pump-running": {
       "type": "led",
@@ -116,6 +124,7 @@
             { "id": "epics_pump_start", "preset": "pump-start", "protocol": { "pv_name": "demo:pump:run" } },
             { "id": "epics_pump_stop", "preset": "pump-stop", "protocol": { "pv_name": "demo:pump:run" } },
             { "id": "epics_pump_run", "preset": "pump-run", "protocol": { "pv_name": "demo:pump:run" } },
+            { "id": "epics_pump_run_timeout", "preset": "pump-run-timeout", "protocol": { "pv_name": "demo:pump:run" } },
             { "id": "epics_pump_running", "preset": "pump-running", "protocol": { "pv_name": "demo:pump:run" } },
             { "id": "epics_discharge_valve", "preset": "discharge-valve", "protocol": { "pv_name": "demo:pump:run" } }
           ]
@@ -206,6 +215,7 @@
             { "id": "modbus_pump_start", "preset": "pump-start", "protocol": { "register": 1, "register_type": "coil" } },
             { "id": "modbus_pump_stop", "preset": "pump-stop", "protocol": { "register": 1, "register_type": "coil" } },
             { "id": "modbus_pump_run", "preset": "pump-run", "protocol": { "register": 1, "register_type": "coil" } },
+            { "id": "modbus_pump_run_timeout", "preset": "pump-run-timeout", "protocol": { "register": 1, "register_type": "coil" } },
             { "id": "modbus_pump_running", "preset": "pump-running", "protocol": { "register": 1, "register_type": "coil" } },
             { "id": "modbus_discharge_valve", "preset": "discharge-valve", "protocol": { "register": 1, "register_type": "coil" } }
           ]
@@ -239,46 +249,47 @@
           "id": "ascii_process", "type": "group", "label": "Process Monitoring", "level": 1,
           "description": "Live level sweeping through LOLO, LO, normal, HI and HIHI bands",
           "children": [
-            { "id": "ascii_level_readback", "preset": "level", "type": "text_update", "label": "Tank Level", "description": "READ TEMPERATURE (25 ± 7) rescaled to 5–95 %", "protocol": { "read_command": "READ TEMPERATURE", "scale": 6.428571, "offset": -110.714286 } },
-            { "id": "ascii_level_gauge", "preset": "level", "type": "gauge", "label": "Tank Level", "orientation": "horizontal", "description": "READ TEMPERATURE rescaled — bar gauge with alarm zones", "protocol": { "read_command": "READ TEMPERATURE", "scale": 6.428571, "offset": -110.714286 } }
+            { "id": "ascii_level_readback", "preset": "level", "type": "text_update", "label": "Tank Level", "description": "READ TEMPERATURE (25 ± 7) rescaled to 5–95 %", "protocol": { "read_command": "READ TEMPERATURE", "read_response": "TEMPERATURE=%f", "scale": 6.428571, "offset": -110.714286 } },
+            { "id": "ascii_level_gauge", "preset": "level", "type": "gauge", "label": "Tank Level", "orientation": "horizontal", "description": "READ TEMPERATURE rescaled — bar gauge with alarm zones", "protocol": { "read_command": "READ TEMPERATURE", "read_response": "TEMPERATURE=%f", "scale": 6.428571, "offset": -110.714286 } }
           ]
         },
         {
           "id": "ascii_alarms", "type": "group", "label": "Alarm States", "level": 1,
           "description": "Reference channels held in each alarm condition",
           "children": [
-            { "id": "ascii_alarm_normal", "preset": "level", "type": "text_update", "label": "Normal", "description": "READ REFERENCE (0) + offset 50 — NO_ALARM", "protocol": { "read_command": "READ REFERENCE", "offset": 50.0 } },
-            { "id": "ascii_alarm_minor", "preset": "level", "type": "text_update", "label": "Minor", "description": "READ REFERENCE (0) + offset 85 — HI (MINOR)", "protocol": { "read_command": "READ REFERENCE", "offset": 85.0 } },
-            { "id": "ascii_alarm_major", "preset": "level", "type": "text_update", "label": "Major", "description": "READ REFERENCE (0) + offset 95 — HIHI (MAJOR)", "protocol": { "read_command": "READ REFERENCE", "offset": 95.0 } },
-            { "id": "ascii_alarm_invalid", "preset": "sensor-fault", "protocol": { "read_command": "READ REFERENCE", "offset": 5.0 } },
-            { "id": "ascii_alarm_disconnected", "preset": "level", "type": "text_update", "label": "Disconnected", "description": "Port 4001 has no ASCII server — no connection", "protocol": { "port": 4001, "read_command": "READ REFERENCE" } }
+            { "id": "ascii_alarm_normal", "preset": "level", "type": "text_update", "label": "Normal", "description": "READ REFERENCE (0) + offset 50 — NO_ALARM", "protocol": { "read_command": "READ REFERENCE", "read_response": "REFERENCE=%f", "offset": 50.0 } },
+            { "id": "ascii_alarm_minor", "preset": "level", "type": "text_update", "label": "Minor", "description": "READ REFERENCE (0) + offset 85 — HI (MINOR)", "protocol": { "read_command": "READ REFERENCE", "read_response": "REFERENCE=%f", "offset": 85.0 } },
+            { "id": "ascii_alarm_major", "preset": "level", "type": "text_update", "label": "Major", "description": "READ REFERENCE (0) + offset 95 — HIHI (MAJOR)", "protocol": { "read_command": "READ REFERENCE", "read_response": "REFERENCE=%f", "offset": 95.0 } },
+            { "id": "ascii_alarm_invalid", "preset": "sensor-fault", "protocol": { "read_command": "READ REFERENCE", "read_response": "REFERENCE=%f", "offset": 5.0 } },
+            { "id": "ascii_alarm_disconnected", "preset": "level", "type": "text_update", "label": "Disconnected", "description": "Port 4001 has no ASCII server — no connection", "protocol": { "port": 4001, "read_command": "READ REFERENCE", "read_response": "REFERENCE=%f" } }
           ]
         },
         {
           "id": "ascii_setpoint", "type": "group", "label": "Setpoint Control", "level": 1,
           "description": "Two writers on one setpoint; drive it into the alarm bands",
           "children": [
-            { "id": "ascii_setpoint_entry", "preset": "level", "type": "text_entry", "label": "Level Setpoint", "description": "READ SETPOINT / SET SETPOINT {value} — numeric entry", "protocol": { "read_command": "READ SETPOINT", "write_command": "SET SETPOINT {value}" } },
-            { "id": "ascii_setpoint_slider", "preset": "level", "type": "slider", "label": "Level Setpoint", "description": "READ SETPOINT / SET SETPOINT {value} — slider", "protocol": { "read_command": "READ SETPOINT", "write_command": "SET SETPOINT {value}" } }
+            { "id": "ascii_setpoint_entry", "preset": "level", "type": "text_entry", "label": "Level Setpoint", "description": "READ SETPOINT / SET SETPOINT {value} — numeric entry", "protocol": { "read_command": "READ SETPOINT", "read_response": "SETPOINT=%f", "write_command": "SET SETPOINT {value}" } },
+            { "id": "ascii_setpoint_slider", "preset": "level", "type": "slider", "label": "Level Setpoint", "description": "READ SETPOINT / SET SETPOINT {value} — slider", "protocol": { "read_command": "READ SETPOINT", "read_response": "SETPOINT=%f", "write_command": "SET SETPOINT {value}" } }
           ]
         },
         {
           "id": "ascii_equipment", "type": "group", "label": "Pump P-101", "level": 1,
           "description": "Mode selection, commands and status",
           "children": [
-            { "id": "ascii_pump_mode", "preset": "pump-mode", "protocol": { "read_command": "READ MODE", "write_command": "SET MODE {value}" } },
-            { "id": "ascii_pump_start", "preset": "pump-start", "protocol": { "read_command": "READ ENABLED", "write_command": "SET ENABLED {value}", "response_mode": "bool" } },
-            { "id": "ascii_pump_stop", "preset": "pump-stop", "protocol": { "read_command": "READ ENABLED", "write_command": "SET ENABLED {value}", "response_mode": "bool" } },
-            { "id": "ascii_pump_run", "preset": "pump-run", "protocol": { "read_command": "READ ENABLED", "write_command": "SET ENABLED {value}", "response_mode": "bool" } },
-            { "id": "ascii_pump_running", "preset": "pump-running", "protocol": { "read_command": "READ ENABLED", "response_mode": "bool" } },
-            { "id": "ascii_discharge_valve", "preset": "discharge-valve", "protocol": { "read_command": "READ ENABLED", "response_mode": "bool" } }
+            { "id": "ascii_pump_mode", "preset": "pump-mode", "protocol": { "read_command": "READ MODE", "read_response": "MODE=%f", "write_command": "SET MODE {value}" } },
+            { "id": "ascii_pump_start", "preset": "pump-start", "protocol": { "read_command": "READ ENABLED", "read_response": "ENABLED=%s", "write_command": "SET ENABLED {value}", "response_mode": "bool" } },
+            { "id": "ascii_pump_stop", "preset": "pump-stop", "protocol": { "read_command": "READ ENABLED", "read_response": "ENABLED=%s", "write_command": "SET ENABLED {value}", "response_mode": "bool" } },
+            { "id": "ascii_pump_run", "preset": "pump-run", "protocol": { "read_command": "READ ENABLED", "read_response": "ENABLED=%s", "write_command": "SET ENABLED {value}", "response_mode": "bool" } },
+            { "id": "ascii_pump_run_timeout", "preset": "pump-run-timeout", "protocol": { "read_command": "READ ENABLED", "read_response": "ENABLED=%s", "write_command": "SET ENABLED {value}", "response_mode": "bool" } },
+            { "id": "ascii_pump_running", "preset": "pump-running", "protocol": { "read_command": "READ ENABLED", "read_response": "ENABLED=%s", "response_mode": "bool" } },
+            { "id": "ascii_discharge_valve", "preset": "discharge-valve", "protocol": { "read_command": "READ ENABLED", "read_response": "ENABLED=%s", "response_mode": "bool" } }
           ]
         },
         {
           "id": "ascii_features", "type": "group", "label": "ASCII Features", "level": 1,
           "description": "Raw text responses",
           "children": [
-            { "id": "ascii_server_message", "type": "text_update", "label": "Server Message", "data_type": "string", "description": "READ MESSAGE — raw text response", "protocol": { "read_command": "READ MESSAGE", "response_mode": "text", "min_poll_interval_ms": 1000 } }
+            { "id": "ascii_server_message", "type": "text_update", "label": "Server Message", "data_type": "string", "description": "READ MESSAGE — raw text response", "protocol": { "read_command": "READ MESSAGE", "read_response": "MESSAGE=%s", "response_mode": "text", "min_poll_interval_ms": 1000 } }
           ]
         }
       ]

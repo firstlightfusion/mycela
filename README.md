@@ -174,6 +174,8 @@ All widgets reflect channel state through border colour and status icons:
 | Disconnected / offline | Cyan border, input disabled |
 | Invalid / unknown | Grey icon |
 
+Alarm metadata severities (`low_alarm_severity`, etc.) accept `MINOR`, `MAJOR`, or `INVALID`; any other value means no alarm.
+
 ## Configuration
 
 Application layout is defined in a JSON file, such as

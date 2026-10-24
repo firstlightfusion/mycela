@@ -30,6 +30,8 @@ pub fn start_ascii_tcp_simulator(port: u16) -> JoinHandle<()> {
     )
 }
 
+/// Replies to `READ <NAME>` as `<NAME>=<value>` so each widget's `read_response` template
+/// recognises its own reply on the shared connection; writes are acknowledged by echo.
 fn handle_request(state: &SimulatorState, request: &str) -> Result<String, String> {
     let normalized = request.to_ascii_uppercase();
 
@@ -39,18 +41,18 @@ fn handle_request(state: &SimulatorState, request: &str) -> Result<String, Strin
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs_f64();
-            Ok(format!("{:.2}", 25.0 + 7.0 * (elapsed / 5.0).sin()))
+            Ok(format!("TEMPERATURE={:.2}", 25.0 + 7.0 * (elapsed / 5.0).sin()))
         }
         "READ SETPOINT" => Ok(format!(
-            "{:.1}",
+            "SETPOINT={:.1}",
             f64::from_bits(state.setpoint_bits.load(Ordering::Relaxed))
         )),
         "READ ENABLED" => Ok(if state.enabled.load(Ordering::Relaxed) {
-            "ON".to_string()
+            "ENABLED=ON".to_string()
         } else {
-            "OFF".to_string()
+            "ENABLED=OFF".to_string()
         }),
-        "READ MESSAGE" => Ok("ASCII TCP server online".to_string()),
+        "READ MESSAGE" => Ok("MESSAGE=ASCII TCP server online".to_string()),
         _ if normalized.starts_with("SET SETPOINT ") => {
             let value = request["SET SETPOINT ".len()..]
                 .trim()
@@ -59,7 +61,7 @@ fn handle_request(state: &SimulatorState, request: &str) -> Result<String, Strin
             state
                 .setpoint_bits
                 .store(value.to_bits(), Ordering::Relaxed);
-            Ok("OK".to_string())
+            Ok(request.to_string())
         }
         _ if normalized.starts_with("SET ENABLED ") => {
             let value = request["SET ENABLED ".len()..].trim().to_ascii_lowercase();
@@ -69,7 +71,7 @@ fn handle_request(state: &SimulatorState, request: &str) -> Result<String, Strin
                 _ => return Err(format!("Invalid enabled value '{value}'")),
             };
             state.enabled.store(enabled, Ordering::Relaxed);
-            Ok("OK".to_string())
+            Ok(request.to_string())
         }
         _ if normalized.starts_with("SET ") => {
             let (name, value) = normalized["SET ".len()..]
@@ -81,12 +83,12 @@ fn handle_request(state: &SimulatorState, request: &str) -> Result<String, Strin
                 .parse::<f64>()
                 .map_err(|_| format!("Invalid value in '{request}'"))?;
             state.values.lock().unwrap().insert(name.to_string(), value);
-            Ok("OK".to_string())
+            Ok(request.to_string())
         }
         _ if normalized.starts_with("READ ") => {
             let name = normalized["READ ".len()..].trim();
             let value = state.values.lock().unwrap().get(name).copied().unwrap_or(0.0);
-            Ok(value.to_string())
+            Ok(format!("{name}={value}"))
         }
         _ => Err(format!("Unknown ASCII TCP command '{request}'")),
     }
