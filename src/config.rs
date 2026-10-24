@@ -64,6 +64,7 @@ pub enum ActionConfig {
 ///
 /// Wraps one or more [`ScreenConfig`]s.  Load with [`AppConfig::load`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(try_from = "AppConfigInput")]
 pub struct AppConfig {
     pub title: String,
     /// Screen `id` to render at `/`. Defaults to the first screen.
@@ -73,6 +74,212 @@ pub struct AppConfig {
     #[serde(default)]
     pub startup: AppStartupConfig,
     pub screens: Vec<ScreenConfig>,
+}
+
+type ConfigFields = serde_json::Map<String, serde_json::Value>;
+type WidgetPresets = std::collections::BTreeMap<String, ConfigFields>;
+
+#[derive(Deserialize)]
+struct AppConfigInput {
+    title: String,
+    #[serde(default)]
+    home_screen: Option<String>,
+    #[serde(default)]
+    startup: AppStartupConfig,
+    screens: Vec<ScreenConfigInput>,
+    #[serde(default)]
+    presets: WidgetPresets,
+    #[serde(default)]
+    defaults: ConfigFields,
+}
+
+#[derive(Deserialize)]
+struct ScreenConfigInput {
+    id: String,
+    title: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    actions: Option<Vec<ActionConfig>>,
+    widgets: Vec<serde_json::Value>,
+    #[serde(default)]
+    presets: WidgetPresets,
+    #[serde(default)]
+    defaults: ConfigFields,
+}
+
+impl TryFrom<AppConfigInput> for AppConfig {
+    type Error = String;
+
+    fn try_from(input: AppConfigInput) -> Result<Self, Self::Error> {
+        validate_widget_fields(&input.defaults, "app defaults")?;
+        validate_presets(&input.presets)?;
+        let screens = input
+            .screens
+            .into_iter()
+            .map(|screen| screen.expand(&input.defaults, &input.presets))
+            .collect::<Result<_, _>>()?;
+        Ok(Self {
+            title: input.title,
+            home_screen: input.home_screen,
+            startup: input.startup,
+            screens,
+        })
+    }
+}
+
+impl TryFrom<ScreenConfigInput> for ScreenConfig {
+    type Error = String;
+
+    fn try_from(input: ScreenConfigInput) -> Result<Self, Self::Error> {
+        input.expand(&ConfigFields::new(), &WidgetPresets::new())
+    }
+}
+
+impl ScreenConfigInput {
+    fn expand(
+        self,
+        inherited_defaults: &ConfigFields,
+        inherited_presets: &WidgetPresets,
+    ) -> Result<ScreenConfig, String> {
+        let result = (|| {
+            validate_widget_fields(&self.defaults, "screen defaults")?;
+            validate_presets(&self.presets)?;
+            let mut defaults = inherited_defaults.clone();
+            merge_config_fields(&mut defaults, self.defaults);
+            let mut presets = inherited_presets.clone();
+            presets.extend(self.presets);
+            let widgets = expand_widgets(self.widgets, &defaults, &presets)?
+                .into_iter()
+                .map(serde_json::from_value)
+                .collect::<Result<_, _>>()
+                .map_err(|error| error.to_string())?;
+            Ok(ScreenConfig {
+                id: self.id.clone(),
+                title: self.title,
+                description: self.description,
+                actions: self.actions,
+                widgets,
+            })
+        })();
+        result.map_err(|error: String| format!("Screen '{}': {}", self.id, error))
+    }
+}
+
+fn validate_widget_fields(fields: &ConfigFields, context: &str) -> Result<(), String> {
+    for key in ["id", "children", "defaults", "presets", "preset"] {
+        if fields.contains_key(key) {
+            return Err(format!("{} cannot contain '{}'", context, key));
+        }
+    }
+    Ok(())
+}
+
+fn validate_presets(presets: &WidgetPresets) -> Result<(), String> {
+    for (name, fields) in presets {
+        validate_widget_fields(fields, &format!("Preset '{}'", name))?;
+    }
+    Ok(())
+}
+
+fn merge_config_fields(base: &mut ConfigFields, overrides: ConfigFields) {
+    for (name, alias) in [
+        ("unit_id", "slave_id"),
+        ("min_poll_interval_ms", "poll_interval_ms"),
+    ] {
+        match (overrides.contains_key(name), overrides.contains_key(alias)) {
+            (true, false) => {
+                base.remove(alias);
+            }
+            (false, true) => {
+                base.remove(name);
+            }
+            _ => {}
+        }
+    }
+    for (key, value) in overrides {
+        match (base.get_mut(&key), value) {
+            (Some(serde_json::Value::Object(base)), serde_json::Value::Object(overrides))
+                if !matches!((base.get("type"), overrides.get("type")),
+                    (Some(old), Some(new)) if old != new) =>
+            {
+                merge_config_fields(base, overrides);
+            }
+            (_, value) => {
+                base.insert(key, value);
+            }
+        }
+    }
+}
+
+fn expand_widgets(
+    widgets: Vec<serde_json::Value>,
+    defaults: &ConfigFields,
+    presets: &WidgetPresets,
+) -> Result<Vec<serde_json::Value>, String> {
+    widgets
+        .into_iter()
+        .enumerate()
+        .map(|(index, widget)| {
+            let serde_json::Value::Object(mut fields) = widget else {
+                return Err(format!("Widget #{} must be an object", index + 1));
+            };
+            let context = fields
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(|id| format!("Widget '{}'", id))
+                .unwrap_or_else(|| format!("Widget #{}", index + 1));
+            if fields.contains_key("presets") {
+                return Err(format!(
+                    "{}: 'presets' is only valid on apps and screens",
+                    context
+                ));
+            }
+            let mut explicit = ConfigFields::new();
+            if let Some(preset) = fields.remove("preset") {
+                let name = preset
+                    .as_str()
+                    .ok_or_else(|| format!("{}: 'preset' must be a string", context))?;
+                explicit = presets
+                    .get(name)
+                    .ok_or_else(|| format!("{}: unknown preset '{}'", context, name))?
+                    .clone();
+            }
+            let child_defaults = fields.remove("defaults");
+            merge_config_fields(&mut explicit, fields);
+            // Container settings never leak into children; scoped defaults do.
+            let is_group =
+                explicit.get("type").and_then(serde_json::Value::as_str) == Some("group");
+            let mut expanded = if is_group {
+                ConfigFields::new()
+            } else {
+                defaults.clone()
+            };
+            merge_config_fields(&mut expanded, explicit);
+            let mut inherited = defaults.clone();
+            if let Some(child_defaults) = child_defaults {
+                if !is_group {
+                    return Err(format!("{}: 'defaults' is only valid on groups", context));
+                }
+                let serde_json::Value::Object(child_defaults) = child_defaults else {
+                    return Err(format!("{}: 'defaults' must be an object", context));
+                };
+                validate_widget_fields(&child_defaults, &format!("{} defaults", context))?;
+                merge_config_fields(&mut inherited, child_defaults);
+            }
+            if let Some(children) = expanded.remove("children") {
+                let children = match children {
+                    serde_json::Value::Array(children) => serde_json::Value::Array(
+                        expand_widgets(children, &inherited, presets)
+                            .map_err(|error| format!("{} / {}", context, error))?,
+                    ),
+                    other => other,
+                };
+                expanded.insert("children".into(), children);
+            }
+            Ok(serde_json::Value::Object(expanded))
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -447,6 +654,7 @@ impl AppConfig {
 
 /// Screen configuration loaded from JSON
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(try_from = "ScreenConfigInput")]
 pub struct ScreenConfig {
     pub id: String,
     pub title: String,
@@ -602,9 +810,9 @@ fn default_serial_baud_rate() -> u32 {
 #[serde(rename_all = "snake_case")]
 pub enum ModbusRegisterType {
     /// Holding registers are read/write data registers.
-    /// Most versitile of the register types and can hold 16-bit analogue or numeric values. 
+    /// Most versitile of the register types and can hold 16-bit analogue or numeric values.
     HoldingRegister,
-    /// Similar to holding registers, but read-only 
+    /// Similar to holding registers, but read-only
     /// and typically used to represent input values from sensors or other external devices.
     InputRegister,
     /// Coils are binary data registers typically used to represent discrete on/off states.
@@ -704,8 +912,8 @@ pub struct WidgetConfig {
     /// Accepted values: `"green"`, `"red"`, `"blue"` (default).
     #[serde(default)]
     pub color: Option<String>,
-    /// Value written to the channel when a widget is actioned. 
-    /// For example, when a button is clicked. 
+    /// Value written to the channel when a widget is actioned.
+    /// For example, when a button is clicked.
     /// Defaults to `1` (ON). Set to `0` for a button that writes OFF/close.
     #[serde(default)]
     pub write_value: Option<f64>,

@@ -1,0 +1,36 @@
+{
+  "title": "Local Controls",
+  "defaults": {
+    "style": { "width": "100%", "height": "auto" }
+  },
+  "presets": {
+    "setpoint": {
+      "data_type": "double",
+      "protocol": { "type": "local", "channel": "app:setpoint", "initial_value": "25" },
+      "metadata": {
+        "display": { "limit_low": 0, "limit_high": 100, "description": "Setpoint", "precision": 1, "units": "%" },
+        "control": { "limit_low": 0, "limit_high": 100, "min_step": 1 }
+      }
+    }
+  },
+  "screens": [
+    {
+      "id": "main",
+      "title": "Controls",
+      "defaults": { "style": { "width": "300px" } },
+      "widgets": [
+        {
+          "id": "controls",
+          "type": "group",
+          "label": "Setpoint",
+          "defaults": { "style": { "height": "60px" } },
+          "children": [
+            { "id": "entry", "type": "text_entry", "label": "Target", "preset": "setpoint" },
+            { "id": "readback", "type": "text_update", "label": "Current", "preset": "setpoint" },
+            { "id": "slider", "type": "slider", "label": "Adjust", "preset": "setpoint" }
+          ]
+        }
+      ]
+    }
+  ]
+}

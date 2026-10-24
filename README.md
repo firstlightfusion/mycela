@@ -176,7 +176,67 @@ All widgets reflect channel state through border colour and status icons:
 
 ## Configuration
 
-Screen layout is defined in a JSON file (`examples/demo_config.json`):
+Application layout is defined in a JSON file, such as
+[examples/demo_app.json](examples/demo_app.json). Applications contain `title`
+and `screens`; each screen contains `id`, `title`, and `widgets`. Individual
+screens can also be loaded with `ScreenConfig::load`.
+
+### Presets and scoped defaults
+
+Use `presets` to share protocol settings, metadata/alarm bands, styles, or any
+other widget options. Use `defaults` for settings common to data widgets in an
+application, screen, or group. For a complete, protocol-independent example, see
+[examples/compact_app.json](examples/compact_app.json).
+
+```json
+{
+  "title": "Controls",
+  "defaults": { "style": { "width": "100%" } },
+  "presets": {
+    "motor": {
+      "data_type": "double",
+      "protocol": { "type": "local", "channel": "app:motor", "initial_value": "0" },
+      "metadata": { "control": { "limit_low": 0, "limit_high": 100 } }
+    }
+  },
+  "screens": [{
+    "id": "main",
+    "title": "Main",
+    "widgets": [
+      { "id": "entry", "type": "text_entry", "label": "Motor", "preset": "motor" },
+      { "id": "readback", "type": "text_update", "label": "Readback", "preset": "motor" }
+    ]
+  }]
+}
+```
+
+- Precedence, lowest to highest: app defaults, screen defaults, enclosing group
+  defaults (outer to inner), the named preset, explicit widget fields.
+- App and screen `presets` are maps of names to widget field objects. A
+  screen-local preset replaces an app preset of the same name. Each widget may
+  select one preset with `"preset": "name"`. Presets cannot reference other presets.
+- Nested objects merge recursively, so a widget can override only
+  `metadata.display.units`, a protocol address, or one style dimension.
+  Arrays replace rather than concatenate; explicit `null` clears an inherited
+  optional field. Changing a nested tagged object's `type` replaces the object
+  entirely, preventing connection settings from leaking between protocols.
+- Defaults apply to data widgets, not group containers. A group's `defaults`
+  apply to its descendants; its own style, protocol, and other explicit settings
+  are not inherited. Groups may use presets for their own settings.
+- Defaults and presets cannot contain `id`, `children`, `defaults`, `presets`,
+  or `preset`. Keep widget identities and layout trees explicit. Group-local
+  preset definitions are not supported.
+- Expansion happens when deserializing `AppConfig` or `ScreenConfig`, including
+  through `load` and `serde_json::from_str` for embedded desktop configurations.
+  Rust struct fields and runtime consumers are unchanged. Serialization and
+  `ScreenConfig::save` emit fully expanded JSON, not the original preset definitions.
+- Existing explicit JSON remains valid. Required fields and feature-gated
+  protocol checks still apply after expansion. This shares configuration, not
+  live channel connections or a new protocol abstraction.
+
+### Explicit screen configuration
+
+Explicit screen configurations remain supported without presets or defaults:
 
 ```json
 {
@@ -194,8 +254,8 @@ Screen layout is defined in a JSON file (`examples/demo_config.json`):
         "pv_name": "demo:double"
       },
       "metadata": {
-        "display": { "limit_low": 0.0, "limit_high": 100.0, "units": "mm", "precision": 3 },
-        "alarm": { "low_alarm_limit": 5.0, "high_alarm_limit": 95.0 }
+        "display": { "limit_low": 0.0, "limit_high": 100.0, "description": "Motor position", "units": "mm", "precision": 3 },
+        "alarm": { "low_alarm_limit": 5.0, "low_warning_limit": 10.0, "high_warning_limit": 90.0, "high_alarm_limit": 95.0, "low_alarm_severity": "MAJOR", "low_warning_severity": "MINOR", "high_warning_severity": "MINOR", "high_alarm_severity": "MAJOR", "hysteresis": 1 }
       }
     },
     {
@@ -208,7 +268,7 @@ Screen layout is defined in a JSON file (`examples/demo_config.json`):
         "host": "192.168.1.10",
         "port": 502,
         "register": 1000,
-        "register_type": "holding",
+        "register_type": "holding_register",
         "scale": 0.1
       }
     }

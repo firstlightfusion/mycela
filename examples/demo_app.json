@@ -1,6 +1,18 @@
 {
   "title": "Mycela Demo",
   "home_screen": "epics",
+  "presets": {
+    "motor-position": {
+      "data_type": "double",
+      "style": { "width": "100%", "height": "auto" },
+      "protocol": { "type": "epics-pvxs", "pv_name": "demo:double" },
+      "metadata": {
+        "display": { "limit_low": 0.0, "limit_high": 100.0, "description": "Horizontal stage position", "precision": 3, "units": "mm" },
+        "control": { "limit_low": 0.0, "limit_high": 100.0, "min_step": 0.1 },
+        "alarm": { "low_alarm_limit": 5.0, "low_warning_limit": 10.0, "high_warning_limit": 85.0, "high_alarm_limit": 95.0, "low_alarm_severity": "MAJOR", "low_warning_severity": "MINOR", "high_warning_severity": "MINOR", "high_alarm_severity": "MAJOR", "hysteresis": 1 }
+      }
+    }
+  },
   "screens": [
     {
       "id": "epics",
@@ -23,50 +35,28 @@
           "children": [
             {
               "id": "text_entry_dark",
+              "preset": "motor-position",
               "type": "text_entry",
               "label": "Motor X Position",
-              "data_type": "double",
               "description": "Editable numeric field with live alarm feedback",
-              "style": { "width": "100%", "height": "auto" },
               "protocol": {
-                "type": "epics-pvxs",
-                "pv_name": "demo:double",
                 "server": { "alarm_serverity": "NONE", "alarm_status": "NO_ALARM" }
-              },
-              "metadata": {
-                "display": { "limit_low": 0.0, "limit_high": 100.0, "description": "Horizontal stage position", "precision": 3, "units": "mm" },
-                "control": { "limit_low": 0.0, "limit_high": 100.0, "min_step": 0.1 },
-                "alarm": { "low_alarm_limit": 5.0, "low_warning_limit": 10.0, "high_warning_limit": 85.0, "high_alarm_limit": 95.0, "low_alarm_severity": "MAJOR", "low_warning_severity": "MINOR", "high_warning_severity": "MINOR", "high_alarm_severity": "MAJOR", "hysteresis": 1 }
               }
             },
             {
               "id": "text_update_dark",
+              "preset": "motor-position",
               "type": "text_update",
               "label": "Motor X Readback",
-              "data_type": "double",
-              "description": "Read-only live value display",
-              "style": { "width": "100%", "height": "auto" },
-              "protocol": { "type": "epics-pvxs", "pv_name": "demo:double" },
-              "metadata": {
-                "display": { "limit_low": 0.0, "limit_high": 100.0, "description": "Horizontal stage position", "precision": 3, "units": "mm" },
-                "control": { "limit_low": 0.0, "limit_high": 100.0, "min_step": 0.1 },
-                "alarm": { "low_alarm_limit": 5.0, "low_warning_limit": 10.0, "high_warning_limit": 85.0, "high_alarm_limit": 95.0, "low_alarm_severity": "MAJOR", "low_warning_severity": "MINOR", "high_warning_severity": "MINOR", "high_alarm_severity": "MAJOR", "hysteresis": 1 }
-              }
+              "description": "Read-only live value display"
             },
             {
               "id": "gauge_dark",
+              "preset": "motor-position",
               "type": "gauge",
               "label": "Motor X Position",
-              "data_type": "double",
               "description": "Analogue bar gauge with alarm zones",
-              "orientation": "horizontal",
-              "style": { "width": "100%", "height": "auto" },
-              "protocol": { "type": "epics-pvxs", "pv_name": "demo:double" },
-              "metadata": {
-                "display": { "limit_low": 0.0, "limit_high": 100.0, "description": "Horizontal stage position", "precision": 3, "units": "mm" },
-                "control": { "limit_low": 0.0, "limit_high": 100.0, "min_step": 0.1 },
-                "alarm": { "low_alarm_limit": 5.0, "low_warning_limit": 10.0, "high_warning_limit": 85.0, "high_alarm_limit": 95.0, "low_alarm_severity": "MAJOR", "low_warning_severity": "MINOR", "high_warning_severity": "MINOR", "high_alarm_severity": "MAJOR", "hysteresis": 1 }
-              }
+              "orientation": "horizontal"
             }
           ]
         },
@@ -661,4 +651,3 @@
     }
   ]
 }
-

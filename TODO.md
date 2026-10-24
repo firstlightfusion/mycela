@@ -2,7 +2,7 @@
 
 ## Configuration Improvements
 
-- [ ] Simplify configuration structure to reduce verbosity
+- [x] Simplify configuration structure to reduce verbosity (presets and app/screen/group defaults)
 - [ ] Create configuration templates for common use cases
 - [ ] Develop a configuration generator tool to assist with JSON creation
 - [ ] Add more robust validation for interdependent configuration fields
