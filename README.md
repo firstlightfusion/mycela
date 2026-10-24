@@ -280,30 +280,30 @@ Explicit screen configurations remain supported without presets or defaults:
 
 | Component | Version |Optional | License |
 |-----------|---------|---------|---------|
-| htmx (embedded JavaScript) | 4.0 | No | Zero-Clause BSD |
-| image | 0.25 | No | Apache-2.0 |
-| Maud | 0.27 | No | MIT or Apache-2.0 |
-| tokio | 1.52 | No | MIT |
-| tokio-stream | 0.1 | No | MIT |
-| futures | 0.3 | No | MIT or Apache-2.0 |
-| async-stream | 0.3 | No | MIT |
-| chrono | 0.4 | No | MIT or Apache-2.0 |
-| DashMap | 6.2 | No | MIT |
-| plotters (SVG) | 0.3 | No | MIT |
-| tracing | 0.1 | No | MIT |
-| tracing-subscriber | 0.3 | No | MIT |
-| tracing-appender | 0.2 | No | MIT |
-| serde | 1.0 | No | MIT or Apache-2.0 |
-| serde_json | 1.0 | No | MIT or Apache-2.0 |
-| axum (web and desktop - with loopback) | 0.8.9 | Yes | MIT |
-| wry (desktop) | 0.55 | Yes | MIT |
-| winit (desktop) | 0.30 | Yes | MIT |
-| tao(desktop) | 0.6 | Yes | MIT |
-| pvxs (epics protocol) | 0.1 | Yes | MPL-2.0 |
-| tokio-modbus (modbus protocol) | 0.17 | Yes | MIT or Apache-2.0 |
-| ascii-tcp (ascii protocol over TCP) | 0.1 | Yes | MPL-2.0 |
-| ascii-serial (ascii protocol over serial) | 0.1 | Yes | MPL-2.0 |
-| rand (dev-dependency) | 0.8 | Yes | MIT or Apache-2.0 |
+| [htmx (embedded JavaScript)](https://github.com/bigskysoftware/htmx) | 4.0.0 | No | Zero-Clause BSD |
+| [image](https://github.com/image-rs/image) | 0.25.10 | No | Apache-2.0 |
+| [Maud](https://github.com/lambda-fairy/maud) | 0.27.0 | No | MIT or Apache-2.0 |
+| [tokio](https://github.com/tokio-rs/tokio) | 1.52.4 | No | MIT |
+| [tokio-stream](https://github.com/tokio-rs/tokio/releases/tag/tokio-stream-0.1.19) | 0.1.19 | No | MIT |
+| [futures](https://github.com/rust-lang/futures-rs) | 0.3.34 | No | MIT or Apache-2.0 |
+| [async-stream](https://github.com/tokio-rs/async-stream) | 0.3.6 | No | MIT |
+| [chrono](https://github.com/chronotope/chrono) | 0.4.45 | No | MIT or Apache-2.0 |
+| [DashMap](https://github.com/xacrimon/dashmap) | 6.2.1 | No | MIT |
+| [plotters (SVG)](https://github.com/38/plotters) | 0.3.7 | No | MIT |
+| [tracing](https://github.com/tokio-rs/tracing) | 0.1.44 | No | MIT |
+| [tracing-subscriber](https://github.com/tokio-rs/tracing) | 0.3.22 | No | MIT |
+| [tracing-appender](https://github.com/tokio-rs/tracing) | 0.2.5 | No | MIT |
+| [serde](https://github.com/serde-rs/serde) | 1.0.229 | No | MIT or Apache-2.0 |
+| [serde_json](https://github.com/serde-rs/json) | 1.0.151 | No | MIT or Apache-2.0 |
+| [axum (web and desktop - with loopback)](https://github.com/tokio-rs/axum) | 0.8.9 | Yes | MIT |
+| [wry (desktop)](https://github.com/tauri-apps/wry) | 0.55.1 | Yes | MIT |
+| [winit (desktop)](https://github.com/rust-windowing/winit) | 0.30.13 | Yes | MIT |
+| [tao(desktop)](https://github.com/tauri-apps/tao) | 0.37.1 | Yes | MIT |
+| [pvxs (epics protocol)](https://github.com/TineZata/pvxs-rs) | 0.1.1 | Yes | MPL-2.0 |
+| [tokio-modbus (modbus protocol)](https://github.com/slowtec/tokio-modbus) | 0.17.0 | Yes | MIT or Apache-2.0 |
+| [ascii-tcp (ascii protocol over TCP)](https://github.com/TineZata/ascii-tcp) | 0.1.1 | Yes | MPL-2.0 |
+| [ascii-serial (ascii protocol over serial)](https://github.com/TineZata/ascii-serial) | 0.1.1 | Yes | MPL-2.0 |
+| [rand (dev-dependency)](https://github.com/rust-random/rand) | 0.8.8 | Yes | MIT or Apache-2.0 |
 
 
 ## Development
