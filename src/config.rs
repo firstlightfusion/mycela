@@ -1115,7 +1115,9 @@ pub struct WidgetSize {
     pub height: Option<String>,
 }
 
-/// Optional widget styling
+/// Optional widget styling. Omitted fields retain the existing CSS defaults.
+/// Setting either `left` or `top` enables absolute positioning within the parent
+/// group's content area or the screen widget grid.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WidgetStyle {
     #[serde(default)]

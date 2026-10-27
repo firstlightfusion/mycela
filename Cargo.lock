@@ -166,6 +166,8 @@ dependencies = [
 [[package]]
 name = "ascii-tcp"
 version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "35359e74905353249551d6c095d659bf6f39be337387c4f3da79461890d9d240"
 dependencies = [
  "serde",
  "serde_json",

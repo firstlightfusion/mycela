@@ -587,17 +587,28 @@ pub fn alarm_status_str(status: i32) -> &'static str {
 
 
 
-/// Build an inline style string from the widget's optional style config (width/height).
-/// Always includes `position:relative` so the absolutely-positioned info button
-/// anchors to the widget container edge rather than a distant ancestor.
+/// Apply optional widget styles, using absolute positioning when coordinates are set.
+/// Otherwise retain normal layout and anchor the info button to the widget.
 pub fn widget_container_style(config: &crate::config::WidgetConfig) -> Option<String> {
     let mut s = String::from("position:relative;");
     if let Some(style) = &config.style {
+        if style.left.is_some() || style.top.is_some() {
+            s = String::from("position:absolute;");
+        }
         if let Some(w) = &style.width {
             s.push_str(&format!("width:{};", w));
         }
         if let Some(h) = &style.height {
             s.push_str(&format!("height:{};", h));
+        }
+        if let Some(left) = &style.left {
+            s.push_str(&format!("left:{};", left));
+        }
+        if let Some(top) = &style.top {
+            s.push_str(&format!("top:{};", top));
+        }
+        if let Some(background) = &style.background {
+            s.push_str(&format!("background:{};", background));
         }
     }
     Some(s)

@@ -94,7 +94,8 @@
           "description": "Live level sweeping through LOLO, LO, normal, HI and HIHI bands",
           "children": [
             { "id": "epics_level_readback", "preset": "level", "type": "text_update", "label": "Tank Level", "description": "PV demo:level — 40 s simulated sweep", "protocol": { "pv_name": "demo:level" } },
-            { "id": "epics_level_gauge", "preset": "level", "type": "gauge", "label": "Tank Level", "orientation": "horizontal", "description": "PV demo:level — bar gauge with alarm zones", "protocol": { "pv_name": "demo:level" } }
+            { "id": "epics_level_gauge", "preset": "level", "type": "gauge", "label": "Tank Level", "orientation": "horizontal", "description": "PV demo:level — bar gauge with alarm zones", "protocol": { "pv_name": "demo:level" } },
+            { "id": "epics_level_guage_vertical", "preset": "level", "type": "gauge", "label": "Tank Level", "orientation": "vertical", "description": "PV demo:level — vertical bar gauge with alarm zones", "protocol": { "pv_name": "demo:level" }, "style": { "width": "500px", "height": "400px" } }
           ]
         },
         {
@@ -117,7 +118,7 @@
           ]
         },
         {
-          "id": "epics_equipment", "type": "group", "label": "Pump P-101", "level": 1,
+          "id": "epics_equipment", "type": "group", "label": "Commands & Feedback", "level": 1,
           "description": "Mode selection, commands and status",
           "children": [
             { "id": "epics_pump_mode", "preset": "pump-mode", "protocol": { "pv_name": "demo:pump:mode" } },
@@ -130,7 +131,7 @@
           ]
         },
         {
-          "id": "epics_trends", "type": "group", "label": "Trends", "level": 1,
+          "id": "epics_trends", "type": "group", "label": "Charts", "level": 1,
           "description": "EPICS array PVs: time series, histogram and scatter",
           "size": { "width": "1000px", "height": "1000px" },
           "children": [
@@ -208,7 +209,7 @@
           ]
         },
         {
-          "id": "modbus_equipment", "type": "group", "label": "Pump P-101", "level": 1,
+          "id": "modbus_equipment", "type": "group", "label": "Commands & Feedback", "level": 1,
           "description": "Mode selection, commands and status",
           "children": [
             { "id": "modbus_pump_mode", "preset": "pump-mode", "protocol": { "register": 1004, "register_type": "holding_register" } },
@@ -273,7 +274,7 @@
           ]
         },
         {
-          "id": "ascii_equipment", "type": "group", "label": "Pump P-101", "level": 1,
+          "id": "ascii_equipment", "type": "group", "label": "Commands & Feedback", "level": 1,
           "description": "Mode selection, commands and status",
           "children": [
             { "id": "ascii_pump_mode", "preset": "pump-mode", "protocol": { "read_command": "READ MODE", "read_response": "MODE=%f", "write_command": "SET MODE {value}" } },

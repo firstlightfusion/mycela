@@ -11,7 +11,6 @@ use mycela::protocol_control::{self, ProtocolControlError};
 use mycela::{modbus_client, server_setup::setup_server_pvs};
 use mycela::axum::{routing::{get, post}, extract::State, response::{Html, IntoResponse, Response}, http::StatusCode};
 use mycela::maud;
-use mycela::tower_http::{services::ServeDir, trace::TraceLayer, cors::CorsLayer};
 use mycela::pvxs;
 use std::sync::{Arc, Mutex};
 
@@ -77,10 +76,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/ascii-tcp/start", post(start_ascii_tcp))
         .route("/api/ascii-tcp/stop", post(stop_ascii_tcp))
         .route("/api/ascii-tcp/status", get(ascii_tcp_status))
-        .nest_service("/static",     ServeDir::new("static"))
-        .with_state(state)
-        .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::permissive());
+        .route("/static/{*path}", get(mycela::assets::serve_asset))
+        .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
     tracing::info!("Server running at http://127.0.0.1:3000");
@@ -146,4 +143,3 @@ async fn start_modbus(State(state): State<AppState>) -> Response {
         }
     }
 }
-

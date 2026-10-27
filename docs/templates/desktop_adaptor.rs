@@ -41,10 +41,7 @@ pub fn build_hooks() -> DesktopRuntimeHooks {
             state
                 .screen_routes()
                 .route(APP_ENTRY_PATH, get(render_app_screen))
-                .route("/static/htmx.min.js", get(assets::serve_htmx))
-                .route("/static/style.css", get(assets::serve_css))
-                .route("/static/tooltip.js", get(assets::serve_tooltip))
-                .route("/static/client_transport.js", get(assets::serve_client_transport))
+                .route("/static/{*path}", get(mycela::assets::serve_asset))
                 .route(APP_BACKGROUND_ASSET_PATH, get(assets::serve_background_svg))
                 .with_state(state)
         },
@@ -94,7 +91,7 @@ fn ipc_protocol_response(
     let path = request.uri().path();
 
     if let Some(asset_path) = path.strip_prefix("/static/") {
-        return match assets::get_asset(asset_path) {
+        return match assets::get_asset(asset_path).or_else(|| mycela::assets::get_asset(asset_path)) {
             Some((bytes, content_type)) => HttpResponse::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, content_type)

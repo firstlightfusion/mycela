@@ -1,0 +1,86 @@
+//! Embedded framework assets shared by HTTP and desktop custom-protocol routes.
+
+use axum::{
+    extract::Path,
+    http::{header, StatusCode},
+    response::{IntoResponse, Response},
+};
+
+/// Serve an embedded asset from an Axum `/static/{*path}` route.
+pub async fn serve_asset(Path(path): Path<String>) -> Response {
+    match get_asset(&path) {
+        Some((bytes, content_type)) => {
+            ([(header::CONTENT_TYPE, content_type)], bytes).into_response()
+        }
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// Returns the embedded static asset bytes and its content-type for the given
+/// path (relative to `/static/`, no leading slash), or `None` for unknown paths.
+pub fn get_asset(path: &str) -> Option<(&'static [u8], &'static str)> {
+    match path {
+        "htmx.min.js" => Some((
+            include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/static/htmx.min.js")),
+            "application/javascript",
+        )),
+        "style.css" => Some((
+            include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/static/style.css")),
+            "text/css",
+        )),
+        "tooltip.js" => Some((
+            include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/static/tooltip.js")),
+            "application/javascript",
+        )),
+        "client_transport.js" => Some((
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/static/client_transport.js"
+            )),
+            "application/javascript",
+        )),
+        "fonts/ibm-plex-mono/IBMPlexMono-Bold.woff2" => Some((
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/static/fonts/ibm-plex-mono/IBMPlexMono-Bold.woff2"
+            )),
+            "font/woff2",
+        )),
+        "fonts/ibm-plex-mono/IBMPlexMono-Medium.woff2" => Some((
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/static/fonts/ibm-plex-mono/IBMPlexMono-Medium.woff2"
+            )),
+            "font/woff2",
+        )),
+        "fonts/ibm-plex-mono/IBMPlexMono-Regular.woff2" => Some((
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/static/fonts/ibm-plex-mono/IBMPlexMono-Regular.woff2"
+            )),
+            "font/woff2",
+        )),
+        "fonts/inter/Inter-Bold.woff2" => Some((
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/static/fonts/inter/Inter-Bold.woff2"
+            )),
+            "font/woff2",
+        )),
+        "fonts/inter/Inter-Medium.woff2" => Some((
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/static/fonts/inter/Inter-Medium.woff2"
+            )),
+            "font/woff2",
+        )),
+        "fonts/inter/Inter-Regular.woff2" => Some((
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/static/fonts/inter/Inter-Regular.woff2"
+            )),
+            "font/woff2",
+        )),
+        _ => None,
+    }
+}

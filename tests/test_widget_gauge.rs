@@ -117,4 +117,46 @@ mod test_widget_gauge {
         let html = render_gauge(&w).into_string();
         assert!(html.contains("data-widget-id=\"g\""));
     }
+
+    #[test]
+    fn explicit_vertical_dimensions_are_used_in_initial_and_streamed_markup() {
+        let widget: WidgetConfig = serde_json::from_value(serde_json::json!({
+            "id": "vertical", "type": "gauge", "label": "Tank Level",
+            "orientation": "vertical",
+            "style": {"width": "100px", "height": "100px"}
+        })).unwrap();
+        let value = ChannelValue {
+            raw_value: 50.0,
+            display_low: 0.0,
+            display_high: 100.0,
+            ..ChannelValue::default()
+        };
+        for html in [
+            render_gauge(&widget).into_string(),
+            render_inner_connected(&widget, &value).into_string(),
+            render_inner_disconnected_with_last(&widget, Some(&value)).into_string(),
+        ] {
+            assert!(html.contains("gauge-widget--sized gauge-widget--sized-height"), "{html}");
+            assert!(html.contains("gauge-vertical"), "{html}");
+        }
+    }
+
+    #[test]
+    fn gauge_sizing_preserves_defaults_and_horizontal_layout() {
+        for (orientation, style, sized, sized_height) in [
+            ("vertical", serde_json::json!(null), false, false),
+            ("vertical", serde_json::json!({"width": "auto", "height": "auto"}), false, false),
+            ("vertical", serde_json::json!({"width": "100px"}), true, false),
+            ("vertical", serde_json::json!({"height": "100px"}), true, true),
+            ("horizontal", serde_json::json!({"width": "100px", "height": "100px"}), false, false),
+        ] {
+            let widget: WidgetConfig = serde_json::from_value(serde_json::json!({
+                "id": "gauge", "type": "gauge", "label": "Gauge",
+                "orientation": orientation, "style": style
+            })).unwrap();
+            let html = render_gauge(&widget).into_string();
+            assert_eq!(html.contains("gauge-widget--sized"), sized, "{html}");
+            assert_eq!(html.contains("gauge-widget--sized-height"), sized_height, "{html}");
+        }
+    }
 }

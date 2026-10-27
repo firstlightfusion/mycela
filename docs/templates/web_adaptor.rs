@@ -30,10 +30,7 @@ pub fn build_routes(state: AppState) -> mycela::axum::Router<AppState> {
     state
         .screen_routes()
         .route(APP_ENTRY_PATH, get(render_app_screen))
-        .route("/static/htmx.min.js", get(assets::serve_htmx))
-        .route("/static/style.css", get(assets::serve_css))
-        .route("/static/tooltip.js", get(assets::serve_tooltip))
-        .route("/static/client_transport.js", get(assets::serve_client_transport))
+        .route("/static/{*path}", get(mycela::assets::serve_asset))
         .route(APP_BACKGROUND_ASSET_PATH, get(assets::serve_background_svg))
         .with_state(state)
 }

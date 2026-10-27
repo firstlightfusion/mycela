@@ -233,6 +233,16 @@ fn render_gauge_html(
     let has_alarm_labels =
         low_alarm.is_some() || low_warn.is_some() || high_warn.is_some() || high_alarm.is_some();
     let vertical = config.orientation.as_deref() == Some("vertical");
+    let sized_width = config
+        .style
+        .as_ref()
+        .and_then(|style| style.width.as_deref())
+        .is_some_and(|width| width != "auto");
+    let sized_height = config
+        .style
+        .as_ref()
+        .and_then(|style| style.height.as_deref())
+        .is_some_and(|height| height != "auto");
     let fill_style = if vertical {
         format!("height: {:.1}%", percentage)
     } else {
@@ -257,7 +267,11 @@ fn render_gauge_html(
         .collect();
 
     html! {
-        div class="widget-inner" {
+        div class={
+            "widget-inner"
+            @if vertical && (sized_width || sized_height) { " gauge-widget--sized" }
+            @if vertical && sized_height { " gauge-widget--sized-height" }
+        } {
             div class=(display_class) {
                 div class="gauge-value" {
                     (display_value)

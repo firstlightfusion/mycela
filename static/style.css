@@ -289,6 +289,7 @@ textarea, input, button, select { font-family: inherit; font-size: inherit; }
 
 /* Widget grid */
 .widget-grid {
+    position: relative;
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 1.5rem;
@@ -845,6 +846,57 @@ input[type="number"] {
     height: 1px;
     margin-bottom: 0;
     margin-right: 2px;
+}
+
+/* Explicit vertical gauge dimensions include the value, scale, and label. */
+.gauge-widget--sized {
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+.gauge-widget--sized > .widget-label {
+    max-width: 100%;
+}
+
+.gauge-widget--sized .gauge-body {
+    width: 100%;
+    min-width: 0;
+    justify-content: center;
+}
+
+.gauge-widget--sized .gauge-bar {
+    flex: 1 1 28px;
+    min-width: 0;
+}
+
+.gauge-widget--sized .gauge-limits,
+.gauge-widget--sized .gauge-axis {
+    flex-shrink: 0;
+    width: 2.5em;
+}
+
+.gauge-widget--sized-height > .gauge-display {
+    flex: 1;
+    min-height: 0;
+}
+
+.gauge-widget--sized-height .gauge-value {
+    font-size: 1rem;
+    line-height: 1.2;
+    margin-bottom: 0.25rem;
+}
+
+.gauge-widget--sized-height .gauge-body {
+    flex: 1;
+    min-height: 0;
+    padding-block: 0.5em;
+}
+
+.gauge-widget--sized-height .gauge-bar,
+.gauge-widget--sized-height .gauge-limits,
+.gauge-widget--sized-height .gauge-axis {
+    height: auto;
 }
 
 /* LED widget */
@@ -1841,6 +1893,7 @@ footer {
 }
 
 .widget-group__content {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 0.75rem;

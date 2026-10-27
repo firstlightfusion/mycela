@@ -1,5 +1,6 @@
 // Library exports for mycela
 pub mod app;
+pub mod assets;
 pub mod channel;
 pub mod config;
 #[cfg(feature = "desktop")]

@@ -4,14 +4,14 @@ mod epics_simulator;
 mod modbus_simulator;
 #[path = "../demo_server/ascii_tcp_simulator.rs"]
 mod ascii_tcp_simulator;
-mod assets;
+use mycela::assets;
 
 use mycela::app::{
     ascii_tcp_status, modbus_status, server_status, start_ascii_tcp, stop_ascii_tcp,
     stop_modbus, stop_server, AppState,
 };
 use mycela::axum::{
-    extract::{Path, State},
+    extract::State,
     http::{header, Request as HttpRequest, Response as HttpResponse, StatusCode},
     response::{Html, IntoResponse, Response as AxumResponse},
     routing::{get, post},
@@ -27,15 +27,6 @@ use mycela::server_setup::setup_server_pvs;
 use mycela::{modbus_client, widgets};
 use std::borrow::Cow;
 use std::sync::{Arc, Mutex, mpsc};
-
-async fn static_file_handler(Path(path): Path<String>) -> impl IntoResponse {
-    match assets::get_asset(&path) {
-        Some((bytes, content_type)) => {
-            ([(header::CONTENT_TYPE, content_type)], bytes).into_response()
-        }
-        None => StatusCode::NOT_FOUND.into_response(),
-    }
-}
 
 async fn start_server(State(state): State<AppState>) -> AxumResponse {
     tracing::info!("POST /api/server/start");
@@ -240,7 +231,7 @@ fn build_routes(state: AppState) -> Router {
         .route("/api/ascii-tcp/start", post(start_ascii_tcp))
         .route("/api/ascii-tcp/stop", post(stop_ascii_tcp))
         .route("/api/ascii-tcp/status", get(ascii_tcp_status))
-        .route("/static/{*path}", get(static_file_handler))
+        .route("/static/{*path}", get(assets::serve_asset))
         .with_state(state)
 }
 

@@ -5,13 +5,16 @@ fn render_group_html(config: &WidgetConfig) -> Markup {
     let level = config.level.unwrap_or(1).clamp(1, 3);
     let level_class = format!("widget-group--h{}", level);
 
-    // Build inline style from optional size config
-    let section_style: Option<String> = config.size.as_ref().and_then(|s| {
-        let mut parts: Vec<String> = Vec::new();
-        if let Some(w) = &s.width  { parts.push(format!("min-width:{}", w)); }
-        if let Some(h) = &s.height { parts.push(format!("min-height:{}", h)); }
-        if parts.is_empty() { None } else { Some(parts.join(";")) }
-    });
+    let mut section_style = super::widget_container_style(config);
+    if let Some(size) = &config.size {
+        let style = section_style.get_or_insert_with(String::new);
+        if let Some(width) = &size.width {
+            style.push_str(&format!("min-width:{};", width));
+        }
+        if let Some(height) = &size.height {
+            style.push_str(&format!("min-height:{};", height));
+        }
+    }
 
     html! {
         section class={"widget-group " (level_class)} style=[section_style] {

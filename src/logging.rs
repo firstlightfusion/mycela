@@ -39,7 +39,7 @@ pub fn init_logging(
     // Default: full trace for mycela internals; all other crates (including the
     // calling binary) pass at INFO and above so operational messages are visible.
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "info,mycela=trace,tower_http=debug,axum=debug".into());
+        .unwrap_or_else(|_| "info,mycela=trace,axum=debug".into());
 
     // Console: DEBUG and above with ANSI colour.
     let console_layer = tracing_subscriber::fmt::layer()

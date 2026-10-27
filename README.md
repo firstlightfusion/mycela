@@ -82,6 +82,26 @@ ASCII protocol examples using the same tagged `protocol` shape:
 
 Server starts at: **http://127.0.0.1:3000**
 
+Both demos embed the framework's CSS, JavaScript, and fonts at compile time;
+no `static` directory is required at runtime. Asset changes require rebuilding.
+The server still loads its application configuration from JSON.
+
+Applications can serve the same embedded assets using plain Axum:
+
+```rust
+use mycela::axum::{routing::get, Router};
+
+let app: Router = Router::new()
+    .route("/static/{*path}", get(mycela::assets::serve_asset));
+```
+
+For desktop custom-protocol handlers, `mycela::assets::get_asset(path)` returns
+the embedded bytes and content type (with `path` relative to `/static/`).
+Unknown assets return `None`; the HTTP handler returns 404.
+Application-specific assets remain the application's responsibility.
+The demo server does not install permissive cross-origin CORS or HTTP request
+tracing middleware; application and protocol logging remain enabled.
+
 ### Demo Desktop (self-contained executable)
 
 The desktop app embeds all static assets and config at compile time. A native
@@ -235,6 +255,32 @@ application, screen, or group. For a complete, protocol-independent example, see
 - Existing explicit JSON remains valid. Required fields and feature-gated
   protocol checks still apply after expansion. This shares configuration, not
   live channel connections or a new protocol abstraction.
+
+### Widget styles
+
+Every visible widget, including groups, accepts an optional `style` object:
+
+```json
+"style": { "left": "14px", "top": "458px", "width": "54px", "height": "20px" }
+```
+
+- `width` and `height` accept CSS lengths such as `px`, `%`, or `auto`.
+  Omitted properties keep their inherited defaults or the existing CSS sizing.
+- Setting `left` or `top` enables **absolute positioning**, relative to the
+  enclosing group's content area, or the screen widget grid for top-level
+  widgets. Without either coordinate, the widget stays in the normal layout.
+- Absolute widgets do not reserve layout space. Give a group containing absolute
+  children enough explicit `style.height` or `size.height` to contain them;
+  group content outside the group's bounds is clipped.
+- `background` optionally sets the widget container's CSS background.
+- Groups also retain the existing `size.width` / `size.height` minimum dimensions.
+  Scoped defaults and presets merge style properties using the precedence above.
+- Hidden widgets remain invisible regardless of their style.
+- Vertical gauges with explicit dimensions fit their bar, scale, value, and label
+  inside that container. The bar grows with the configured width after reserving
+  space for the alarm labels and axis. Without an explicit height, the bar keeps
+  its default 180px height. Allow enough space for the value and labels when
+  sizing a gauge.
 
 ### Explicit screen configuration
 
