@@ -349,7 +349,7 @@ Explicit screen configurations remain supported without presets or defaults:
 | [tao(desktop)](https://github.com/tauri-apps/tao) | 0.37.1 | Yes | MIT |
 | [pvxs (epics protocol)](https://github.com/TineZata/pvxs-rs) | 0.1.1 | Yes | MPL-2.0 |
 | [tokio-modbus (modbus protocol)](https://github.com/slowtec/tokio-modbus) | 0.17.0 | Yes | MIT or Apache-2.0 |
-| [ascii-tcp (ascii protocol over TCP)](https://github.com/TineZata/ascii-tcp) | 0.1.1 | Yes | MPL-2.0 |
+| [ascii-tcp (ascii protocol over TCP)](https://github.com/TineZata/ascii-tcp) | 0.1.2 | Yes | MIT |
 | [ascii-serial (ascii protocol over serial)](https://github.com/TineZata/ascii-serial) | 0.1.1 | Yes | MPL-2.0 |
 | [rand (dev-dependency)](https://github.com/rust-random/rand) | 0.8.8 | Yes | MIT or Apache-2.0 |
 
