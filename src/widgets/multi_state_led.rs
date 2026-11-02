@@ -1,12 +1,18 @@
 //! `MultiStateLed` widget — multi-state polygon indicator for valve feedback.
 //!
-//! Reads a single holding register and maps its value to three visual states:
+//! Reads a single holding register and maps its value to visual states.
+//!
+//! Default (two-state) behaviour when `states` is not configured:
 //! - **open**    (green)  — register = 1 (or 0 when `invert = true`)
 //! - **closed**  (red)    — register = 0 (or 1 when `invert = true`)
-//! - **pending** (grey)   — disconnected / Modbus error
+//! - **pending** (grey)   — disconnected / Modbus error / unmapped value
+//!
+//! Custom states: set `widget.states` to a list of `{ value, label, color? }`
+//! entries (e.g. LOW / MED / HIGH). Values not listed render as pending, and
+//! `invert` is ignored.
 //!
 //! The polygon shape is configurable via `widget.polygon_points`.
-//! mycela defaults to a plain rectangle; downstream apps supply a bowtie:
+//! mycela defaults to a plain rectangle; downstream apps can supply a for example a bowtie:
 //! `"0,0 0,18 15,9 30,18 30,0 15,9"` (30 × 18 px).
 
 use maud::{html, Markup};
@@ -15,7 +21,7 @@ use futures::StreamExt;
 use crate::channel::{ChannelContext, ChannelEvent, ChannelValue};
 use crate::config::WidgetConfig;
 
-/// Default polygon for mycela's generic square indicator (30 × 18).
+/// Default polygon for mycela's generic rectangle indicator (30 × 18).
 const DEFAULT_POINTS: &str = "0,0 30,0 30,18 0,18";
 
 /// Compute the bounding box of a polygon points string (e.g. `"0,0 30,18 …"`).
@@ -107,32 +113,62 @@ impl MultiStateLed {
 
 // ─── State helpers ─────────────────────────────────────────────────────────────
 
-fn state_class(raw_value: f64, invert: bool) -> &'static str {
-    if raw_value != 0.0 && raw_value != 1.0 {
-        return "vs-pending";
-    }
+const DEFAULT_PALETTE: [&str; 6] = ["#cc2222", "#22cc66", "#e6b800", "#2288dd", "#aa55cc", "#ee7722"];
 
-    let is_open = (raw_value != 0.0) ^ invert;
-    if is_open { "vs-open" } else { "vs-closed" }
+const OPEN_COLOR: &str = "#22cc66";
+const CLOSED_COLOR: &str = "#cc2222";
+
+/// Resolved presentation of a value: CSS class, display label and optional custom colour.
+struct StateView {
+    cls: &'static str,
+    label: String,
+    color: Option<String>,
 }
 
-fn state_label(cls: &str) -> &'static str {
-    match cls {
-        "vs-open"   => "OPEN",
-        "vs-closed" => "CLOSED",
-        _           => "--",
+fn pending_view() -> StateView {
+    StateView { cls: "ms-pending", label: "--".to_string(), color: None }
+}
+
+/// Accept only characters valid in simple CSS colours (hex, named, rgb()/hsl()).
+fn sanitize_color(color: &str) -> Option<String> {
+    let ok = !color.is_empty()
+        && color.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '#' | '(' | ')' | ',' | '.' | '%' | ' '));
+    ok.then(|| color.trim().to_string())
+}
+
+fn state_view(config: &WidgetConfig, raw_value: f64) -> StateView {
+    if let Some(states) = config.states.as_ref().filter(|s| !s.is_empty()) {
+        return match states.iter().enumerate().find(|(_, s)| s.value == raw_value) {
+            Some((i, s)) => StateView {
+                cls: "vs-custom",
+                label: s.label.clone(),
+                color: s.color.as_deref().and_then(sanitize_color)
+                    .or_else(|| Some(DEFAULT_PALETTE[i % DEFAULT_PALETTE.len()].to_string())),
+            },
+            None => pending_view(),
+        };
+    }
+
+    if raw_value != 0.0 && raw_value != 1.0 {
+        return pending_view();
+    }
+    let is_open = (raw_value != 0.0) ^ config.invert.unwrap_or(false);
+    if is_open {
+        StateView { cls: "vs-custom", label: "OPEN".to_string(), color: Some(OPEN_COLOR.to_string()) }
+    } else {
+        StateView { cls: "vs-custom", label: "CLOSED".to_string(), color: Some(CLOSED_COLOR.to_string()) }
     }
 }
 
 pub fn render_inner_connected(config: &WidgetConfig, cv: &ChannelValue) -> Markup {
-    let cls = state_class(cv.raw_value, config.invert.unwrap_or(false));
+    let view = state_view(config, cv.raw_value);
     let icon: Option<&str> = match cv.alarm_severity {
         1 => Some(super::MINOR_ALARM_SVG),
         2 => Some(super::MAJOR_ALARM_SVG),
         3 => Some(super::INVALID_SVG),
         _ => None,
     };
-    render_polygon_html(config, cls, icon, &super::tooltips::build_led_tooltip(config, cv))
+    render_polygon_html(config, &view, icon, &super::tooltips::build_led_tooltip(config, cv))
 }
 
 pub fn render_inner_pending(config: &WidgetConfig) -> Markup {
@@ -140,15 +176,15 @@ pub fn render_inner_pending(config: &WidgetConfig) -> Markup {
 }
 
 pub fn render_inner_pending_with_last(config: &WidgetConfig, last_value: Option<&ChannelValue>) -> Markup {
-    let state_cls = match last_value {
-        Some(cv) => state_class(cv.raw_value, config.invert.unwrap_or(false)),
-        None => "vs-pending",
+    let view = match last_value {
+        Some(cv) => state_view(config, cv.raw_value),
+        None => pending_view(),
     };
     let tooltip = super::tooltips::build_disconnected_tooltip(config);
-    render_polygon_html(config, state_cls, Some(super::OFFLINE_SVG), &tooltip)
+    render_polygon_html(config, &view, Some(super::OFFLINE_SVG), &tooltip)
 }
 
-fn render_polygon_html(config: &WidgetConfig, state_cls: &str, icon: Option<&str>, tooltip: &str) -> Markup {
+fn render_polygon_html(config: &WidgetConfig, view: &StateView, icon: Option<&str>, tooltip: &str) -> Markup {
     let points = config.polygon_points.as_deref().unwrap_or(DEFAULT_POINTS);
     let (w, h) = polygon_dimensions(points);
     let view_box = format!("0 0 {} {}", w, h);
@@ -160,14 +196,16 @@ fn render_polygon_html(config: &WidgetConfig, state_cls: &str, icon: Option<&str
     };
     let state_pos = config.label_position.as_deref().unwrap_or("bottom");
     let wrapper_style = format!("flex-direction:{};", flex_dir);
+    let polygon_style = view.color.as_ref().map(|c| format!("fill:{c};stroke:color-mix(in srgb, {c} 45%, white);"));
+    let text_style = view.color.as_ref().map(|c| format!("color:{c};"));
     html! {
-        div class="widget-inner vs-widget" style=(wrapper_style) data-state-pos=(state_pos) {
-            svg class="vs-polygon" width=(w) height=(h) viewBox=(view_box)
+        div class="widget-inner ms-widget" style=(wrapper_style) data-state-pos=(state_pos) {
+            svg class="ms-polygon" width=(w) height=(h) viewBox=(view_box)
                 xmlns="http://www.w3.org/2000/svg" {
-                polygon class=(state_cls) points=(points) {}
+                polygon class=(view.cls) style=[polygon_style] points=(points) {}
             }
-            span class={"vs-state " (state_cls) "-text"} {
-                (state_label(state_cls))
+            span class={"ms-state " (view.cls) "-text"} style=[text_style] {
+                (view.label)
             }
             label class="widget-label" {
                 (config.label)

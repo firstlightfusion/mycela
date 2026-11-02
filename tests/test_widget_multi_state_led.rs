@@ -1,6 +1,6 @@
 mod test_widget_multi_state_led {
     use mycela::channel::ChannelValue;
-    use mycela::config::{WidgetConfig, WidgetType};
+    use mycela::config::{LedStateConfig, WidgetConfig, WidgetType};
     use mycela::widgets::multi_state_led::{
         render_inner_connected,
         render_inner_pending,
@@ -33,7 +33,7 @@ mod test_widget_multi_state_led {
     #[test]
     fn test_pending_state_renders_vs_pending_class() {
         let html = render_inner_pending(&w()).into_string();
-        assert!(html.contains("vs-pending"), "got: {html}");
+        assert!(html.contains("ms-pending"), "got: {html}");
     }
 
     #[test]
@@ -46,7 +46,7 @@ mod test_widget_multi_state_led {
     fn test_pending_state_keeps_last_known_state_when_available() {
         let cv = ChannelValue { raw_value: 1.0, ..ChannelValue::default() };
         let html = render_inner_pending_with_last(&w(), Some(&cv)).into_string();
-        assert!(html.contains("vs-open"), "got: {html}");
+        assert!(html.contains("fill:#22cc66"), "got: {html}");
         assert!(html.contains("OPEN"), "got: {html}");
     }
 
@@ -62,7 +62,8 @@ mod test_widget_multi_state_led {
     fn test_value_1_normal_renders_vs_open_class() {
         let cv = ChannelValue { raw_value: 1.0, ..ChannelValue::default() };
         let html = render_inner_connected(&w(), &cv).into_string();
-        assert!(html.contains("vs-open"), "got: {html}");
+        assert!(html.contains("fill:#22cc66"), "got: {html}");
+        assert!(html.contains("stroke:color-mix"), "got: {html}");
     }
 
     #[test]
@@ -78,7 +79,7 @@ mod test_widget_multi_state_led {
     fn test_value_0_normal_renders_vs_closed_class() {
         let cv = ChannelValue { raw_value: 0.0, ..ChannelValue::default() };
         let html = render_inner_connected(&w(), &cv).into_string();
-        assert!(html.contains("vs-closed"), "got: {html}");
+        assert!(html.contains("fill:#cc2222"), "got: {html}");
     }
 
     #[test]
@@ -94,7 +95,7 @@ mod test_widget_multi_state_led {
     fn test_value_0_inverted_renders_vs_open_class() {
         let cv = ChannelValue { raw_value: 0.0, ..ChannelValue::default() };
         let html = render_inner_connected(&w_inverted(), &cv).into_string();
-        assert!(html.contains("vs-open"), "got: {html}");
+        assert!(html.contains("fill:#22cc66"), "got: {html}");
     }
 
     #[test]
@@ -110,7 +111,7 @@ mod test_widget_multi_state_led {
     fn test_value_1_inverted_renders_vs_closed_class() {
         let cv = ChannelValue { raw_value: 1.0, ..ChannelValue::default() };
         let html = render_inner_connected(&w_inverted(), &cv).into_string();
-        assert!(html.contains("vs-closed"), "got: {html}");
+        assert!(html.contains("fill:#cc2222"), "got: {html}");
     }
 
     #[test]
@@ -126,7 +127,7 @@ mod test_widget_multi_state_led {
     fn test_value_2_renders_vs_pending_class() {
         let cv = ChannelValue { raw_value: 2.0, ..ChannelValue::default() };
         let html = render_inner_connected(&w(), &cv).into_string();
-        assert!(html.contains("vs-pending"), "got: {html}");
+        assert!(html.contains("ms-pending"), "got: {html}");
     }
 
     #[test]
@@ -186,9 +187,9 @@ mod test_widget_multi_state_led {
     }
 
     #[test]
-    fn test_vs_widget_class_is_present() {
+    fn test_ms_widget_class_is_present() {
         let html = render_inner_pending(&w()).into_string();
-        assert!(html.contains("vs-widget"), "got: {html}");
+        assert!(html.contains("ms-widget"), "got: {html}");
     }
 
     // ── alarm and offline icons ───────────────────────────────────────────────
@@ -219,5 +220,72 @@ mod test_widget_multi_state_led {
         let html = render_inner_connected(&w(), &cv).into_string();
         assert!(!html.contains(MINOR_ALARM_SVG), "unexpected minor alarm icon, got: {html}");
         assert!(!html.contains(MAJOR_ALARM_SVG), "unexpected major alarm icon, got: {html}");
+    }
+
+    // ── custom states from config ─────────────────────────────────────────────
+
+    fn w_levels() -> WidgetConfig {
+        let states: Vec<LedStateConfig> = serde_json::from_str(
+            r##"[{"value":0,"label":"LOW"},
+                 {"value":1,"label":"MED","color":"#ffaa00"},
+                 {"value":2,"label":"HIGH","color":"red"}]"##,
+        )
+        .unwrap();
+        WidgetConfig { states: Some(states), ..w() }
+    }
+
+    #[test]
+    fn test_custom_states_render_configured_labels() {
+        for (raw, label) in [(0.0, "LOW"), (1.0, "MED"), (2.0, "HIGH")] {
+            let cv = ChannelValue { raw_value: raw, ..ChannelValue::default() };
+            let html = render_inner_connected(&w_levels(), &cv).into_string();
+            assert!(html.contains(label), "got: {html}");
+            assert!(html.contains("vs-custom"), "got: {html}");
+        }
+    }
+
+    #[test]
+    fn test_custom_states_do_not_render_open_closed() {
+        let cv = ChannelValue { raw_value: 1.0, ..ChannelValue::default() };
+        let html = render_inner_connected(&w_levels(), &cv).into_string();
+        assert!(!html.contains("OPEN") && !html.contains("CLOSED"), "got: {html}");
+    }
+
+    #[test]
+    fn test_custom_state_uses_configured_color() {
+        let cv = ChannelValue { raw_value: 1.0, ..ChannelValue::default() };
+        let html = render_inner_connected(&w_levels(), &cv).into_string();
+        assert!(html.contains("fill:#ffaa00"), "got: {html}");
+    }
+
+    #[test]
+    fn test_custom_state_without_color_uses_palette_default() {
+        let cv = ChannelValue { raw_value: 0.0, ..ChannelValue::default() };
+        let html = render_inner_connected(&w_levels(), &cv).into_string();
+        assert!(html.contains("fill:#cc2222"), "got: {html}");
+    }
+
+    #[test]
+    fn test_custom_states_unmapped_value_renders_pending() {
+        let cv = ChannelValue { raw_value: 7.0, ..ChannelValue::default() };
+        let html = render_inner_connected(&w_levels(), &cv).into_string();
+        assert!(html.contains("ms-pending"), "got: {html}");
+        assert!(html.contains("--"), "got: {html}");
+    }
+
+    #[test]
+    fn test_custom_states_keep_last_known_label_when_disconnected() {
+        let cv = ChannelValue { raw_value: 2.0, ..ChannelValue::default() };
+        let html = render_inner_pending_with_last(&w_levels(), Some(&cv)).into_string();
+        assert!(html.contains("HIGH"), "got: {html}");
+    }
+
+    #[test]
+    fn test_custom_state_unsafe_color_is_ignored() {
+        let mut cfg = w_levels();
+        cfg.states.as_mut().unwrap()[1].color = Some("red;background:url(x)".to_string());
+        let cv = ChannelValue { raw_value: 1.0, ..ChannelValue::default() };
+        let html = render_inner_connected(&cfg, &cv).into_string();
+        assert!(!html.contains("url(x)"), "got: {html}");
     }
 }

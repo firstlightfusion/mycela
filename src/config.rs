@@ -901,6 +901,12 @@ pub struct WidgetConfig {
     /// Set `true` when the register is a "closed" flag (1 = closed, 0 = open).
     #[serde(default)]
     pub invert: Option<bool>,
+    /// Custom states for a `MultiStateLed` widget. Each entry maps a raw value to a
+    /// display label and optional colour. When omitted, the widget falls back to the
+    /// two-state `OPEN`/`CLOSED` behaviour (see `invert`).
+    /// Example: `[{"value":0,"label":"LOW"},{"value":1,"label":"MED"},{"value":2,"label":"HIGH"}]`
+    #[serde(default)]
+    pub states: Option<Vec<LedStateConfig>>,
     /// Show the "ON"/"OFF" text under an `Led` widget's indicator. Defaults to `true`.
     #[serde(default)]
     pub show_status_text: Option<bool>,
@@ -1104,6 +1110,18 @@ pub enum WidgetType {
     MultiStateLed,
     /// Hidden widget type used for hold values internally. Not rendered in the UI.
     Hidden,
+}
+
+/// One configured state of a `MultiStateLed` widget.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LedStateConfig {
+    /// Raw channel value that selects this state.
+    pub value: f64,
+    /// Text displayed for this state (e.g. `"LOW"`).
+    pub label: String,
+    /// CSS colour for the indicator and text (e.g. `"#22cc66"`). Defaults to a palette colour by position.
+    #[serde(default)]
+    pub color: Option<String>,
 }
 
 /// Explicit container size for Group widgets (applied as inline min-width/min-height)

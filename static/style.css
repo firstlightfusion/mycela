@@ -1948,54 +1948,45 @@ footer {
     }
 }
 
-/* ── ValveState widget ─────────────────────────────────────────── */
-.vs-widget {
+/* ── Multi-state widget ─────────────────────────────────────────── */
+.ms-widget {
     display: inline-flex;
     flex-direction: row;
-    align-items: center;
+    align-items: center;*/
     gap: 4px;
     padding: 2px 4px;
 }
 
-.vs-polygon {
+.ms-polygon {
     flex-shrink: 0;
     overflow: visible;
 }
 
 /* Polygon fill states */
-polygon.vs-open {
-    fill: #22cc66;
-    stroke: #88ffaa;
-    stroke-width: 1.5;
-}
-
-polygon.vs-closed {
-    fill: #cc2222;
-    stroke: #ff8888;
-    stroke-width: 1.5;
-}
-
-polygon.vs-pending {
+polygon.ms-pending {
     fill: #888888;
     stroke: #bbbbbb;
     stroke-width: 1.5;
 }
 
-.vs-label {
-    font-size: 9px;
+/* Fill colour and lighter outline supplied inline from the state colour */
+polygon.ms-custom {
+    stroke-width: 1.5;
+}
+
+.ms-label {
+    font-size: 12px;
     color: #aaaaaa;
     font-family: monospace;
 }
 
-.vs-state {
-    font-size: 8px;
+.ms-state {
+    font-size: 12px;
     font-weight: bold;
     font-family: monospace;
 }
 
-.vs-open-text    { color: #22cc66; }
-.vs-closed-text  { color: #cc2222; }
-.vs-pending-text { color: #888888; }
+.ms-pending-text { color: #888888; }
 
 /* Hide widget info buttons when info is toggled off */
 body.info-off .widget-info-btn {
