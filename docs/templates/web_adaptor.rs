@@ -24,7 +24,9 @@ pub fn build_app_state(config: AppConfig, loopback_token: Option<String>) -> App
     // Start every widget monitor now, so they run with no browser connected and the
     // SSE streams reuse them instead of spawning duplicate pollers.
     mycela::app::start_shared_widget_monitors(&state);
-    crate::logic::spawn_heartbeat_blink(&state);
+    
+    // Spawn any threads from the application's logic here.
+
     state
 }
 
