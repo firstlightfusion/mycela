@@ -153,8 +153,8 @@ fn render_polygon_html(config: &WidgetConfig, state_cls: &str, icon: Option<&str
     let (w, h) = polygon_dimensions(points);
     let view_box = format!("0 0 {} {}", w, h);
     let flex_dir = match config.label_position.as_deref() {
-        Some("top")    => "column",
-        Some("bottom") => "column-reverse",
+        Some("top")    => "column-reverse",
+        Some("bottom") => "column",
         Some("right")  => "row-reverse",
         _              => "row",   // "left" or unset → default
     };
