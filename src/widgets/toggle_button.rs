@@ -269,7 +269,7 @@ impl ToggleButton {
                     is_connected = true;
                     ctx_clone.set_widget_connected(&widget_id, true);
                     ctx_clone.publish_widget_value(&widget_id, cv.clone());
-                    let is_on = cv.raw_value > 0.5;
+                    let is_on = cv.raw_value != config.reset_default.unwrap_or(0.0);
                     if is_on {
                         if let Some(timeout_ms) = config.reset_timeout.filter(|ms| *ms > 0) {
                             countdown_end =
