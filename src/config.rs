@@ -471,12 +471,12 @@ pub enum ModbusBridgeAccessMode {
 pub enum ModbusBridgeReadMode {
     /// Every downstream read is a read of the upstream device (merged with other
     /// concurrent reads). Always current; upstream load follows downstream polling.
+    #[default]
     Live,
     /// A value read from upstream is served until `cache_ttl_ms` has passed, and
     /// concurrent readers share one upstream read. Bounds upstream load. Once the
     /// TTL is exceeded the next read refreshes it, and a failed refresh is an
     /// error, never a stale value.
-    #[default]
     Cached,
 }
 
