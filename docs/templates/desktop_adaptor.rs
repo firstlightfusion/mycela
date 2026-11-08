@@ -12,7 +12,7 @@ use mycela::axum::http::{
 use mycela::config::AppConfig;
 use mycela::desktop::DesktopRuntimeHooks;
 use mycela::ipc::{IpcEvent, IpcMessageKind};
-use mycela::modbus_client::ModbusPool;
+use mycela::modbus::pool::ModbusPool;
 use mycela::widgets;
 
 // Desktop adaptor starter template.

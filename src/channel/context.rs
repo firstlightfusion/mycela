@@ -13,9 +13,9 @@ pub struct ChannelContext {
     #[cfg(feature = "epics-pvxs")]
     pub epics_ctx: Arc<std::sync::Mutex<pvxs::Context>>,
     #[cfg(feature = "modbus")]
-    pub modbus_pool: Arc<crate::modbus_client::ModbusPool>,
+    pub modbus_pool: Arc<crate::modbus::pool::ModbusPool>,
     #[cfg(feature = "modbus-server")]
-    pub modbus_bridge: Arc<crate::modbus_bridge::ModbusBridgeContext>,
+    pub modbus_bridge: Arc<crate::modbus::bridge::ModbusBridgeContext>,
     /// Shared ASCII-TCP client; serialises requests per endpoint so widgets on one endpoint never overlap.
     #[cfg(feature = "ascii-tcp")]
     pub ascii_tcp_ctx: Arc<ascii_tcp::Context>,
@@ -148,7 +148,7 @@ impl ChannelContext {
     #[cfg(all(feature = "epics-pvxs", feature = "modbus"))]
     pub fn new(
         epics_ctx: Arc<std::sync::Mutex<pvxs::Context>>,
-        modbus_pool: Arc<crate::modbus_client::ModbusPool>,
+        modbus_pool: Arc<crate::modbus::pool::ModbusPool>,
     ) -> Arc<Self> {
         let metrics = modbus_pool.metrics();
         Arc::new(Self {
@@ -156,7 +156,7 @@ impl ChannelContext {
             epics_ctx,
             modbus_pool,
             #[cfg(feature = "modbus-server")]
-            modbus_bridge: crate::modbus_bridge::ModbusBridgeContext::new(),
+            modbus_bridge: crate::modbus::bridge::ModbusBridgeContext::new(),
             #[cfg(feature = "ascii-tcp")]
             ascii_tcp_ctx: Arc::new(ascii_tcp::Context::default()),
             widget_enabled: DashMap::new(),
@@ -183,13 +183,13 @@ impl ChannelContext {
     }
 
     #[cfg(all(not(feature = "epics-pvxs"), feature = "modbus"))]
-    pub fn new(modbus_pool: Arc<crate::modbus_client::ModbusPool>) -> Arc<Self> {
+    pub fn new(modbus_pool: Arc<crate::modbus::pool::ModbusPool>) -> Arc<Self> {
         let metrics = modbus_pool.metrics();
         Arc::new(Self {
             local_store: crate::local_channel::LocalStore::new(),
             modbus_pool,
             #[cfg(feature = "modbus-server")]
-            modbus_bridge: crate::modbus_bridge::ModbusBridgeContext::new(),
+            modbus_bridge: crate::modbus::bridge::ModbusBridgeContext::new(),
             #[cfg(feature = "ascii-tcp")]
             ascii_tcp_ctx: Arc::new(ascii_tcp::Context::default()),
             widget_enabled: DashMap::new(),

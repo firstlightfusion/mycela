@@ -53,7 +53,7 @@ pub fn channel_stream(
 
     #[cfg(feature = "modbus")]
     if let Some(ProtocolConfig::ModbusTcp(_)) = config.protocol.as_ref() {
-        return Box::pin(crate::modbus_client::modbus_stream(
+        return Box::pin(crate::modbus::client::modbus_stream(
             config,
             ctx.modbus_pool.clone(),
         ));

@@ -24,7 +24,7 @@ use mycela::ipc::{IpcEvent, IpcMessageKind};
 use mycela::protocol_control::{self, ProtocolControlError};
 use mycela::pvxs;
 use mycela::server_setup::setup_server_pvs;
-use mycela::{modbus_client, widgets};
+use mycela::{modbus, widgets};
 use std::borrow::Cow;
 use std::sync::{Arc, Mutex, mpsc};
 
@@ -189,7 +189,7 @@ fn build_app_state(config: AppConfig, loopback_token: Option<String>) -> AppStat
     tracing::info!("Modbus TCP simulator started on port 5020");
     let ascii_tcp_task = ascii_tcp_simulator::start_ascii_tcp_simulator(4000);
     tracing::info!("ASCII TCP demo simulator started on port 4000");
-    let modbus_pool = modbus_client::ModbusPool::new();
+    let modbus_pool = modbus::pool::ModbusPool::new();
     let channel_ctx = ChannelContext::new(epics_ctx, modbus_pool);
 
     AppState {

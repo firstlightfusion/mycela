@@ -178,7 +178,7 @@
         { "type": "api", "label": "Stop Modbus Sim", "method": "post", "path": "/api/modbus/stop" }
       ],
       "defaults": {
-        "protocol": { "type": "modbus-tcp", "host": "127.0.0.1", "port": 5020, "min_poll_interval_ms": 500 }
+        "protocol": { "type": "modbus-tcp", "host": "127.0.0.1", "port": 5020, "unit_id": 1, "min_poll_interval_ms": 500 }
       },
       "widgets": [
         {

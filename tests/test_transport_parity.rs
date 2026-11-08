@@ -29,7 +29,7 @@ mod test_transport_parity {
         ));
 
         #[cfg(feature = "modbus")]
-        let modbus_pool = mycela::modbus_client::ModbusPool::new();
+        let modbus_pool = mycela::modbus::pool::ModbusPool::new();
 
         #[cfg(all(feature = "epics-pvxs", feature = "modbus"))]
         let channel_ctx = ChannelContext::new(epics_ctx, modbus_pool);

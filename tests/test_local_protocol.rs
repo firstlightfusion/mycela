@@ -28,7 +28,7 @@ mod test_local_protocol {
         ));
 
         #[cfg(feature = "modbus")]
-        let modbus_pool = mycela::modbus_client::ModbusPool::new();
+        let modbus_pool = mycela::modbus::pool::ModbusPool::new();
 
         #[cfg(all(feature = "epics-pvxs", feature = "modbus"))]
         {

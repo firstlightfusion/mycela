@@ -1,7 +1,8 @@
 mod test_config_modbus_serde {
     use mycela::config::{
-        ModbusRegisterType, ModbusTcpConfig, ScreenConfig, WidgetServerEpicsPvxsConfig,
-        WidgetServerProtocolConfig,
+        ModbusBridgeReadMode, ModbusBridgeStartupConfig, ModbusRegisterType, ModbusTcpConfig,
+        ScreenConfig, WidgetServerEpicsPvxsConfig, WidgetServerProtocolConfig,
+        DEFAULT_MODBUS_BRIDGE_CACHE_TTL_MS,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -46,6 +47,30 @@ mod test_config_modbus_serde {
         assert_eq!(m.word_count, 1);
         assert_eq!(m.scale, 1.0);
         assert_eq!(m.offset, 0.0);
+    }
+
+    #[test]
+    fn test_modbus_bridge_read_mode_defaults_to_cached_with_a_two_second_ttl() {
+        let bridge: ModbusBridgeStartupConfig = serde_json::from_str(r#"{"enabled": true}"#).unwrap();
+        assert_eq!(bridge.read_mode, ModbusBridgeReadMode::Cached);
+        assert_eq!(bridge.cache_ttl_ms, 2000);
+        assert_eq!(bridge.cache_ttl_ms, DEFAULT_MODBUS_BRIDGE_CACHE_TTL_MS);
+    }
+
+    #[test]
+    fn test_modbus_bridge_read_mode_live_is_selectable() {
+        let bridge: ModbusBridgeStartupConfig =
+            serde_json::from_str(r#"{"read_mode": "live"}"#).unwrap();
+        assert_eq!(bridge.read_mode, ModbusBridgeReadMode::Live);
+    }
+
+    #[test]
+    fn test_modbus_bridge_read_mode_cached_with_custom_ttl_is_accepted() {
+        let bridge: ModbusBridgeStartupConfig =
+            serde_json::from_str(r#"{"read_mode": "cached", "cache_ttl_ms": 500}"#).unwrap();
+        assert_eq!(bridge.read_mode, ModbusBridgeReadMode::Cached);
+        assert_eq!(bridge.cache_ttl_ms, 500);
+        assert!(serde_json::from_str::<ModbusBridgeStartupConfig>(r#"{"read_mode": "stale"}"#).is_err());
     }
 
     #[test]

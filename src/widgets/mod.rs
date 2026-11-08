@@ -512,7 +512,7 @@ async fn write_channel_modbus(
             }
         },
     };
-    match crate::modbus_client::modbus_write(&m, physical, &channel_ctx.modbus_pool).await {
+    match crate::modbus::client::modbus_write(&m, physical, &channel_ctx.modbus_pool).await {
         Ok(()) => {
             tracing::info!("[{}] write_channel Modbus OK", widget_id);
             html! { span class="write-ok" { "OK" } }

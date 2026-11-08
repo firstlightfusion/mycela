@@ -21,7 +21,7 @@ mod test_widgets_disconnection_response {
     use mycela::config::{
         ModbusRegisterType, ModbusTcpConfig, ProtocolConfig, WidgetConfig, WidgetType,
     };
-    use mycela::modbus_client::ModbusPool;
+    use mycela::modbus::pool::ModbusPool;
     use mycela::widgets::run_widget_monitor_async;
 
     // ── minimal one-shot Modbus TCP server ────────────────────────────────────

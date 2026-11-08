@@ -5,7 +5,7 @@ mod test_modbus_build_channel_value {
         AlarmMetadata, ControlMetadata, DisplayMetadata, ModbusTcpConfig, ModbusRegisterType,
         PvMetadata, WidgetConfig, WidgetType,
     };
-    use mycela::modbus_client::build_channel_value;
+    use mycela::modbus::client::build_channel_value;
 
     fn widget(id: &str, widget_type: WidgetType) -> WidgetConfig {
         WidgetConfig {

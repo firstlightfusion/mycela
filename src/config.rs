@@ -350,8 +350,20 @@ pub struct ModbusBridgeStartupConfig {
     pub listen_addr: String,
     #[serde(default = "default_modbus_bridge_listen_port")]
     pub listen_port: u16,
+    /// Modbus unit id the bridge answers as. Requests for any other unit id get the
+    /// "gateway target device failed to respond" exception. Unit 255 (a directly
+    /// addressed TCP device) is always accepted. 0 (broadcast) is not allowed.
+    #[serde(default = "default_modbus_bridge_listen_unit_id")]
+    pub listen_unit_id: u8,
     #[serde(default)]
     pub upstream: Option<ModbusBridgeUpstreamConfig>,
+    /// How upstream-sourced registers are read for downstream clients.
+    #[serde(default)]
+    pub read_mode: ModbusBridgeReadMode,
+    /// In `cached` mode, how long (ms) a value read from upstream may be served
+    /// before the next read fetches it again. Ignored in `live` mode.
+    #[serde(default = "default_modbus_bridge_cache_ttl_ms")]
+    pub cache_ttl_ms: u64,
     #[serde(default)]
     pub registers: Vec<ModbusBridgeRegisterMap>,
 }
@@ -363,7 +375,10 @@ impl Default for ModbusBridgeStartupConfig {
             enabled: false,
             listen_addr: default_modbus_bridge_listen_addr(),
             listen_port: default_modbus_bridge_listen_port(),
+            listen_unit_id: default_modbus_bridge_listen_unit_id(),
             upstream: None,
+            read_mode: ModbusBridgeReadMode::default(),
+            cache_ttl_ms: default_modbus_bridge_cache_ttl_ms(),
             registers: Vec::new(),
         }
     }
@@ -449,9 +464,39 @@ pub enum ModbusBridgeAccessMode {
     ReadWrite,
 }
 
+/// How the bridge answers downstream reads of upstream-sourced registers.
+#[cfg(feature = "modbus")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ModbusBridgeReadMode {
+    /// Every downstream read is a read of the upstream device (merged with other
+    /// concurrent reads). Always current; upstream load follows downstream polling.
+    Live,
+    /// A value read from upstream is served until `cache_ttl_ms` has passed, and
+    /// concurrent readers share one upstream read. Bounds upstream load. Once the
+    /// TTL is exceeded the next read refreshes it, and a failed refresh is an
+    /// error, never a stale value.
+    #[default]
+    Cached,
+}
+
+/// Default `cache_ttl_ms` of the bridge's `cached` read mode.
+#[cfg(feature = "modbus")]
+pub const DEFAULT_MODBUS_BRIDGE_CACHE_TTL_MS: u64 = 2000;
+
+#[cfg(feature = "modbus")]
+fn default_modbus_bridge_cache_ttl_ms() -> u64 {
+    DEFAULT_MODBUS_BRIDGE_CACHE_TTL_MS
+}
+
 #[cfg(feature = "modbus")]
 fn default_modbus_bridge_listen_addr() -> String {
     "0.0.0.0".to_string()
+}
+
+#[cfg(feature = "modbus")]
+fn default_modbus_bridge_listen_unit_id() -> u8 {
+    1
 }
 
 #[cfg(feature = "modbus")]
@@ -544,6 +589,12 @@ impl AppConfig {
         if bridge.listen_addr.trim().is_empty() {
             return Err(ConfigError::ValidationError(
                 "Invalid startup.modbus_bridge.listen_addr: value cannot be empty".to_string(),
+            ));
+        }
+
+        if bridge.listen_unit_id == 0 {
+            return Err(ConfigError::ValidationError(
+                "Invalid startup.modbus_bridge.listen_unit_id: 0 is the Modbus broadcast address and is never answered".to_string(),
             ));
         }
 
@@ -1311,6 +1362,39 @@ mod tests {
         assert!(config.startup.desktop.window.title.is_none());
         assert!(config.startup.desktop.window.width.is_none());
         assert!(config.startup.desktop.window.height.is_none());
+    }
+
+    #[cfg(feature = "modbus")]
+    #[test]
+    fn modbus_bridge_listen_unit_id_defaults_to_one_and_rejects_broadcast() {
+        let json = |unit: &str| {
+            format!(
+                r#"{{
+                  "title": "Test",
+                  "startup": {{ "modbus_bridge": {{
+                    "enabled": true,
+                    {}
+                    "registers": [{{
+                      "exposed_register": 0,
+                      "register_type": "holding_register",
+                      "source_upstream_register": 100
+                    }}]
+                  }} }},
+                  "screens": [{}]
+                }}"#,
+                unit,
+                minimal_screen_json()
+            )
+        };
+
+        let default: AppConfig = serde_json::from_str(&json("")).expect("config should parse");
+        assert_eq!(default.startup.modbus_bridge.listen_unit_id, 1);
+        AppConfig::validate_app_config(&default).expect("default unit id should validate");
+
+        let broadcast: AppConfig =
+            serde_json::from_str(&json(r#""listen_unit_id": 0,"#)).expect("config should parse");
+        let error = AppConfig::validate_app_config(&broadcast).expect_err("unit 0 must be rejected");
+        assert!(format!("{}", error).contains("listen_unit_id"));
     }
 
     #[test]

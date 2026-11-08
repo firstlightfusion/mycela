@@ -8,7 +8,7 @@ use mycela::app::{
 };
 use mycela::config::AppConfig;
 use mycela::protocol_control::{self, ProtocolControlError};
-use mycela::{modbus_client, server_setup::setup_server_pvs};
+use mycela::{modbus, server_setup::setup_server_pvs};
 use mycela::axum::{routing::{get, post}, extract::State, response::{Html, IntoResponse, Response}, http::StatusCode};
 use mycela::maud;
 use mycela::pvxs;
@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ascii_tcp_task = ascii_tcp_simulator::start_ascii_tcp_simulator(4000);
     tracing::info!("ASCII TCP demo simulator started on port 4000");
     let channel_ctx = mycela::channel::ChannelContext::new(
-        epics_ctx, modbus_client::ModbusPool::new(),
+        epics_ctx, modbus::pool::ModbusPool::new(),
     );
 
     let state = AppState {
