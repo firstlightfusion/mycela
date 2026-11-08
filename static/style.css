@@ -1952,7 +1952,7 @@ footer {
 .ms-widget {
     display: inline-flex;
     flex-direction: row;
-    align-items: center;*/
+    align-items: center;
     gap: 4px;
     padding: 2px 4px;
 }
